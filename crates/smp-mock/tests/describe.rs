@@ -27,10 +27,23 @@ fn describe_reports_the_contract() {
     let (c, _srv) = rig(Fault::None);
     let d = c.describe().expect("describe should succeed");
 
-    assert_eq!(d.contract, "1.0.0", "contract version");
+    // Not pinned here: contract_version.rs guards the version across the
+    // document, the firmware Kconfig, the runtime and the mock. Duplicating the
+    // literal in every test just makes a version bump a chore.
+    assert!(
+        d.contract.starts_with("1."),
+        "should report a contract this runtime implements, got {:?}",
+        d.contract
+    );
     assert_eq!(d.board, "smp-mock");
     assert_eq!(d.channels, 2, "the normal management + log split");
     assert!(!d.app_version.is_empty());
+    assert_eq!(d.img, Some(true), "the mock implements the image group");
+    assert_eq!(
+        d.idle,
+        Some(false),
+        "the mock is not a provisioning placeholder"
+    );
 }
 
 #[test]

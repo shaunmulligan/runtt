@@ -113,6 +113,20 @@ fn the_document_does_not_mention_a_stale_version() {
 }
 
 #[test]
+fn the_mock_declares_the_documented_contract() {
+    // The mock stands in for a device in every integration test. If it advertises
+    // a contract the runtime would refuse -- or worse, one it would wrongly
+    // accept -- those tests stop meaning anything.
+    let server = read("crates/smp-mock/src/server.rs");
+    let want = format!("Value::Text(\"{}\".into())", documented_version());
+    assert!(
+        server.contains(&want),
+        "smp-mock should report contract {} over describe, like the document says",
+        documented_version()
+    );
+}
+
+#[test]
 fn the_describe_group_is_the_per_user_base() {
     // 64 is MGMT_GROUP_ID_PERUSER. Below it the ids belong to Zephyr, so a
     // command there would be squatting on someone else's number.

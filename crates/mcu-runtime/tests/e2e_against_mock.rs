@@ -485,8 +485,11 @@ fn the_device_is_identified_before_anything_is_written() {
         identified < uploaded,
         "identity must be established BEFORE writing to the device:\n{text}"
     );
+    // Deliberately not pinned to a version literal: this test is about identity
+    // being established before any write, and contract_version.rs already guards
+    // the version itself across the document, the firmware and the mock.
     assert!(
-        text.contains("contract 1.0.0"),
+        text.contains("(contract "),
         "should report the contract version:\n{text}"
     );
     rig.cleanup();
