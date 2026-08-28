@@ -18,7 +18,7 @@ The honesty test for this contract: a competent Zephyr developer with existing
 firmware should get onto the platform by adding a module and one build flag.
 
 ```bash
-west build -b <board> --sysbuild -S balena-mcu app/
+west build -b <board> --sysbuild app/ -- -Dapp_SNIPPET=balena-mcu
 ```
 
 That is the whole developer surface. The module supplies the SMP server, the two
