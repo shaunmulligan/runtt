@@ -26,6 +26,7 @@ echo "── docker run --runtime mcu-runtime ──"
 set +e
 docker run --rm \
   --runtime mcu-runtime \
+  --network none \
   --annotation io.balena.mcu.target=usb:3-6 \
   "$IMAGE"
 echo "container exit code: $?"
