@@ -30,7 +30,8 @@ Working:
 
 - The five OCI verbs, driven successfully by **Docker 28** and **podman**.
 - The full deploy sequence — upload, mark test, reset, verify, confirm — against
-  a mock device, end to end through a container engine.
+  both a mock device and **Zephyr native_sim**, end to end through a container
+  engine (`scripts/native-sim-engine-e2e.sh`).
 - Exclusive occupancy, restart-policy propagation, `docker logs` capture.
 - A fault-injecting SMP mock with seven failure modes.
 

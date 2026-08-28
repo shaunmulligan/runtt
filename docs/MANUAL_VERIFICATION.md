@@ -347,6 +347,37 @@ container tried to claim it, which is exactly what a restart policy would do.
 
 ---
 
+## Doing it through a container engine instead
+
+The steps above call the OCI verbs by hand, which is the clearest way to see each
+one. But it skips the other half of the picture: that the firmware is really
+delivered *as a container image*. For that:
+
+```bash
+./scripts/native-sim-engine-e2e.sh            # podman, no setup needed
+ENGINE=docker ./scripts/native-sim-engine-e2e.sh
+```
+
+That builds a `FROM scratch` image holding the signed firmware, runs it through
+the engine with the placement label as an OCI annotation, and checks the deploy
+happened — including that the bytes in the simulated flash match the image that
+was shipped inside the container image.
+
+The container is **expected to exit non-zero**: native_sim cannot swap, so the
+runtime correctly refuses to confirm. That non-zero exit is what drives a restart
+policy on a real device.
+
+> podman is the default because it needs no daemon config and no root. It is not
+> a complete substitute for Docker: containerd passes global flags podman does
+> not (`--root`, `--log`, `--log-format`), sends `kill` differently, and calls
+> `delete` twice. The script header lists the differences; `docs/OCI_COMPLIANCE.md`
+> has the real traces.
+>
+> If the Docker path fails with `IMG_MGMT_ERR_HASH_NOT_FOUND` or a missing
+> `version=`, the registered binary is stale — Docker runs
+> `/usr/local/bin/mcu-runtime`, not what you just built. The script detects this
+> and tells you; re-run `sudo scripts/register-docker.sh`.
+
 ## What this does and doesn't prove
 
 Proved above: the OCI verbs, two contract channels as ptys, SMP framing against a

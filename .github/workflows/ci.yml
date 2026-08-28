@@ -105,8 +105,15 @@ jobs:
       - name: Build firmware for native_sim
         run: ./scripts/build-native-sim.sh
 
-      - name: Phase-1 gate
+      - name: Phase-1 gate (runtime driven directly)
         run: ./scripts/native-sim-e2e.sh
+
+      # The other seam: a real container image, through a real engine, to
+      # native_sim. podman needs no daemon config or root, so it runs here.
+      # See the header of that script for what podman does NOT cover versus
+      # containerd -- notably the global flag surface.
+      - name: Phase-1 gate (full stack through podman)
+        run: ./scripts/native-sim-engine-e2e.sh
 
   mcuboot-sim:
     # The coverage native_sim structurally cannot give us. MCUboot's own Rust
