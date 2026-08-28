@@ -1,0 +1,14 @@
+/target
+**/*.rs.bk
+*.pdb
+# Zephyr / west workspace
+/zephyr/.west/
+/zephyr/zephyr/
+/zephyr/modules/
+/zephyr/bootloader/
+/zephyr/build/
+# local artefacts
+*.bin
+*.hex
+*.elf
+/flash.bin

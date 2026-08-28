@@ -1,0 +1,37 @@
+# balena MCU runtime — device access and contract-keyed device tree.
+#
+# Numbered 90 so it runs after systemd's stock 60-serial.rules, whose
+# ID_PATH / ID_PATH_TAG variables we consume.
+#
+# Install: sudo install -m 0644 udev/90-balena-mcu.rules /etc/udev/rules.d/
+#          sudo udevadm control --reload && sudo udevadm trigger
+
+# --- Raspberry Pi Debug Probe (2e8a:000c) ---------------------------------
+# CMSIS-DAP v2 bulk interface, reached through libusb by probe-rs/pyOCD/OpenOCD.
+# Ubuntu leaves this root:root 0664, so a read-write open fails as a normal user.
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="000c", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# The probe's CDC-ACM UART bridge. ID_MM_DEVICE_IGNORE is load-bearing: a
+# ModemManager AT probe landing mid-SMP-upload is a corrupted transfer.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000c", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="balena-mcu/probe-uart"
+
+# --- RP2040 / RP2350 in BOOTSEL ROM-bootloader mode (picotool) -------------
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="0003", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="000f", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# --- Contract-keyed device tree -------------------------------------------
+# Match on our interface STRING DESCRIPTORS, not VID/PID: customers may ship
+# their own VID, and the descriptor is the part the firmware contract controls.
+# The resulting /dev/balena-mcu/ tree is the runtime's discovery inventory and
+# keeps arbitrary customer serial devices out of scope by construction.
+SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-mgmt", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", MODE="0660", GROUP="plugdev", \
+  SYMLINK+="balena-mcu/$env{ID_PATH_TAG}-mgmt"
+SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-log", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", MODE="0660", GROUP="plugdev", \
+  SYMLINK+="balena-mcu/$env{ID_PATH_TAG}-log"

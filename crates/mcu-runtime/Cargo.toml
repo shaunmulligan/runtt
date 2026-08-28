@@ -1,0 +1,23 @@
+[package]
+name = "mcu-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mcu-runtime"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+libc.workspace = true
+liboci-cli.workspace = true
+nix.workspace = true
+oci-spec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+smp-client = { path = "../smp-client" }
+transport = { path = "../transport" }
