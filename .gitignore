@@ -11,9 +11,15 @@
 /build/
 /build-pico/
 /build-pico-mcuboot/
+# generated provisioning artefacts
+provision.uf2
+provision.hex
 /firmware/**/build/
 /build-pico/
 /build-pico-mcuboot/
+# generated provisioning artefacts
+provision.uf2
+provision.hex
 # local artefacts
 *.bin
 *.hex
