@@ -37,6 +37,12 @@ struct Cli {
     #[command(flatten)]
     global: GlobalOpts,
 
+    /// Append a JSONL record of every invocation (argv, cwd, parsed spec) to
+    /// this path. Diagnostic only. Pass it via daemon.json "runtimeArgs",
+    /// since the engine does not forward a user shell's environment.
+    #[arg(long, global = true, value_name = "PATH")]
+    mcu_trace: Option<PathBuf>,
+
     #[command(subcommand)]
     cmd: Command,
 }
@@ -75,6 +81,7 @@ fn main() {
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
     init_logging(&cli.global);
+    trace::init(cli.mcu_trace.clone());
     trace::record("invoked", json!({}));
 
     let ctx = verbs::Ctx {
