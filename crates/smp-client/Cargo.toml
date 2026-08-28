@@ -6,5 +6,13 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+mcumgr-toolkit.workspace = true
+sha2.workspace = true
 tracing.workspace = true
 transport = { path = "../transport" }
+
+[dev-dependencies]
+base64.workspace = true
+serialport.workspace = true
+smp-mock = { path = "../smp-mock" }
+tracing-subscriber.workspace = true

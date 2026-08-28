@@ -6,6 +6,9 @@
 
 use anyhow::Result;
 
+pub mod toolkit;
+pub use toolkit::ToolkitClient;
+
 /// One image slot as reported by the SMP img group (group 1, command 0).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageSlot {

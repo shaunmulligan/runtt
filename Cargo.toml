@@ -15,6 +15,9 @@ repository = "https://github.com/balena-os/mcu-runtime"
 
 [workspace.dependencies]
 anyhow = "1.0.104"
+base64 = "0.23.1"
+ciborium = "0.2.2"
+crc = "3.4.0"
 clap = { version = "4.6.6", features = ["derive"] }
 libc = "0.2.189"
 liboci-cli = "0.7.0"

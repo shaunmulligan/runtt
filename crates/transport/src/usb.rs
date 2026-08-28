@@ -7,6 +7,7 @@
 
 use crate::Channel;
 use anyhow::{Context, Result};
+use serialport::SerialPort;
 use std::io::{Read, Write};
 use std::time::Duration;
 
@@ -50,5 +51,34 @@ impl Write for SerialChannel {
 impl Channel for SerialChannel {
     fn describe(&self) -> String {
         self.name.clone()
+    }
+}
+
+/// `mcumgr-toolkit` grants `ConfigurableTimeout` through a blanket impl over
+/// `AsMut<dyn SerialPort>`, so exposing the inner port is all that is needed to
+/// hand this channel straight to `MCUmgrClient::new_from_serial`.
+impl AsMut<dyn serialport::SerialPort> for SerialChannel {
+    fn as_mut(&mut self) -> &mut (dyn serialport::SerialPort + 'static) {
+        self.port.as_mut()
+    }
+}
+
+impl SerialChannel {
+    /// Wrap an already-open port — used by the test harness to drive a pty pair
+    /// and by native_sim, where the "port" is a `/dev/pts/N`.
+    pub fn from_port(port: Box<dyn serialport::SerialPort>, name: impl Into<String>) -> Self {
+        Self { port, name: name.into() }
+    }
+
+    /// A connected pty pair, for tests: `.0` stands in for the host side, `.1`
+    /// for the device side.
+    pub fn pty_pair() -> Result<(Self, Self)> {
+        let (host, device) = serialport::TTYPort::pair().context("failed to allocate a pty pair")?;
+        let host_name = host.name().unwrap_or_else(|| "pty-host".into());
+        let dev_name = device.name().unwrap_or_else(|| "pty-device".into());
+        Ok((
+            Self::from_port(Box::new(host), host_name),
+            Self::from_port(Box::new(device), dev_name),
+        ))
     }
 }
