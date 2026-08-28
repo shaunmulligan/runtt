@@ -45,7 +45,7 @@ fn a_withheld_response_is_an_error_not_a_hang() {
     // A board whose firmware lacks the module answers ENOTSUP; a board that is
     // wedged answers nothing. Both must surface as errors, and the error should
     // point at the likely cause.
-    let (mut c, _srv) = rig(Fault::Timeout {
+    let (c, _srv) = rig(Fault::Timeout {
         group: GROUP_PERUSER,
         cmd: 0,
     });
