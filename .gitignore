@@ -25,6 +25,9 @@ provision.hex
 *.hex
 *.elf
 /flash.bin
+# ...but the signed test fixtures are source, not artefacts: the e2e tests
+# include_bytes! them, so without these a fresh clone does not COMPILE.
+!crates/smp-client/tests/fixtures/*.bin
 
 # Local-only: host setup notes specific to one machine (paths, USB topology,
 # group membership). Useful to have to hand, not useful to anyone else, and not

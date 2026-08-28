@@ -44,7 +44,12 @@ jobs:
       - name: Smoke test through podman
         run: |
           set -euo pipefail
-          mkdir -p /tmp/fw && head -c 8192 /dev/urandom > /tmp/fw/app.signed.bin
+          # A REAL imgtool-signed image, not random bytes. The runtime parses the
+          # MCUboot header and TLV digest to establish image identity, so a raw
+          # binary is rejected outright with "not an MCUboot image". This block
+          # used /dev/urandom until the TLV parser landed in phase 1.
+          mkdir -p /tmp/fw
+          cp crates/smp-client/tests/fixtures/app.signed.bin /tmp/fw/app.signed.bin
           cat > /tmp/fw/Dockerfile <<'DOCKER'
           FROM scratch
           ADD app.signed.bin /
