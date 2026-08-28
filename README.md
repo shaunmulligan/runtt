@@ -49,6 +49,7 @@ hardware bring-up (phase 2).
 | `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
 | `docs/MANUAL_VERIFICATION.md` | walk the native_sim flow by hand, step by step |
 | `udev/90-balena-mcu.rules` | device access and the contract-keyed device tree |
+| `scripts/setup-prereqs.sh` | one-time host setup for hardware work (`--check` to just verify) |
 
 ## Trying it
 
