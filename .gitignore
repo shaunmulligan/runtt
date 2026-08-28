@@ -9,7 +9,11 @@
 /bootloader/
 /tools/
 /build/
+/build-pico/
+/build-pico-mcuboot/
 /firmware/**/build/
+/build-pico/
+/build-pico-mcuboot/
 # local artefacts
 *.bin
 *.hex
