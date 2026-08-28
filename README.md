@@ -47,6 +47,7 @@ hardware bring-up (phase 2).
 | `crates/transport` | the transport seam: USB now, CAN later |
 | `crates/smp-mock` | SMP server with injectable faults, for testing error paths |
 | `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics |
+| `docs/PROVISIONING.md` | the one physical act: getting a board manageable in the first place |
 | `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
 | `docs/MANUAL_VERIFICATION.md` | walk the native_sim flow by hand, step by step |
 | `udev/90-balena-mcu.rules` | device access and the contract-keyed device tree |
