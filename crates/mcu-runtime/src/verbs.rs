@@ -76,11 +76,21 @@ pub fn create(
 
     let firmware = locate_firmware(&spec, bundle)?;
 
+    // Default on: reflashing an image the device already runs is a pointless
+    // write cycle and a pointless reboot. Opt out with the annotation set to
+    // "false" when you want to force a rewrite (e.g. suspected flash corruption).
+    let skip_if_same = spec
+        .annotations()
+        .as_ref()
+        .and_then(|a| a.get(annotations::SPEC_SKIP_IF_SAME))
+        .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no"))
+        .unwrap_or(true);
+
     // Claim the port before spawning anything, so a conflict is reported as a
     // create failure rather than a mysteriously dying container.
     let lock_fd = lock::acquire(&ctx.root, &target)?;
 
-    let pid = crate::proxy::spawn(id, &target, &firmware, lock_fd)
+    let pid = crate::proxy::spawn(id, &target, &firmware, skip_if_same, lock_fd)
         .context("failed to spawn the resident proxy process")?;
 
     // From here on, any failure must not leave an orphaned proxy holding the port.
@@ -233,6 +243,12 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool) -> Result<()> {
     if running {
         if let Some(pid) = st.pid() {
             let _ = crate::proxy::signal(*pid, libc::SIGKILL);
+            // Wait for it to actually go. `delete` must not return while the
+            // proxy still holds the serial port open exclusively: on a restart
+            // policy the engine immediately creates the replacement, which
+            // would then fail to open the device with EBUSY. Signalling is
+            // asynchronous; releasing the resource is what we are promising.
+            crate::proxy::await_exit(*pid, std::time::Duration::from_secs(5));
         }
     }
 

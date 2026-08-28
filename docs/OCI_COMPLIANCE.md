@@ -90,3 +90,32 @@ Against real Docker, with a `FROM scratch` + `ADD app.signed.bin /` +
   occupancy lock until killed. Under an engine the shim reaps it; standalone use
   needs manual cleanup.
 - `--preserve-fds` is parsed but not acted on.
+
+## Device acquisition: why `TIOCEXCL` is off
+
+`serialport` enables `TIOCEXCL` by default. We turn it off, deliberately.
+
+`TIOCEXCL` is a flag on the **terminal**, not on the file descriptor, and it is
+only cleared once *every* fd to that tty has closed. So whenever anything else
+holds the device open — native_sim holding its own pty, a log pump sharing a
+single-channel link, a test harness, the mock — a process that exits leaves the
+flag set, and the next open fails with `EBUSY`.
+
+That failure mode is worst exactly where it hurts most: on a restart-policy
+cycle, the engine immediately creates the replacement container, which cannot
+open the device, exits non-zero, and restarts again. One crash becomes a
+permanently unstartable service.
+
+Nothing is lost by dropping it, because the protection it appeared to give is
+provided properly elsewhere:
+
+- **One service per MCU** comes from our own `flock` occupancy lock, which is
+  held by the resident proxy's inherited file description.
+- **Keeping ModemManager out of an in-flight upload** comes from
+  `ID_MM_DEVICE_IGNORE=1` in the udev rules.
+
+`TIOCEXCL` was protecting against neither, while adding a sticky failure mode.
+
+Relatedly, `delete` waits (bounded) for the proxy to actually exit after
+`SIGKILL` rather than returning as soon as the signal is delivered. Signalling is
+asynchronous; releasing the device is what `delete` is promising.

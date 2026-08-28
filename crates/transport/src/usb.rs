@@ -15,9 +15,21 @@ use std::time::Duration;
 pub const IFACE_MGMT: &str = "balena-mcu-mgmt";
 pub const IFACE_LOG: &str = "balena-mcu-log";
 
-/// A serial port opened exclusively (`TIOCEXCL`, which `serialport` sets by
-/// default) so that a stray ModemManager probe cannot interleave with an
-/// in-flight SMP upload.
+/// A serial port on one channel of a target.
+///
+/// **`TIOCEXCL` is deliberately disabled.** `serialport` sets it by default, but
+/// it is a flag on the *terminal*, not on the file descriptor: it is only
+/// cleared once every fd to that tty closes. So if anything else holds the
+/// device open — native_sim holding its own pty, a log pump on a shared link,
+/// the mock — then a process that exits leaves the flag set and the next open
+/// fails with `EBUSY`. On a restart-policy cycle that turns one crash into a
+/// permanently unstartable service.
+///
+/// We lose nothing by dropping it, because exclusivity is provided properly
+/// elsewhere: our own `flock`-based occupancy lock is what guarantees one
+/// service per MCU, and `ID_MM_DEVICE_IGNORE=1` in the udev rules is what keeps
+/// ModemManager from probing mid-upload. `TIOCEXCL` was protecting against
+/// neither, while adding a sticky failure mode.
 pub struct SerialChannel {
     port: Box<dyn serialport::SerialPort>,
     name: String,
@@ -25,11 +37,15 @@ pub struct SerialChannel {
 
 impl SerialChannel {
     pub fn open(path: &str, baud: u32, timeout: Duration) -> Result<Self> {
-        let port = serialport::new(path, baud)
+        // open_native() rather than open(), so we get a concrete TTYPort and can
+        // turn off TIOCEXCL before anyone depends on it. See the type docs.
+        let mut port = serialport::new(path, baud)
             .timeout(timeout)
-            .open()
+            .open_native()
             .with_context(|| format!("failed to open serial port {path}"))?;
-        Ok(Self { port, name: path.to_string() })
+        port.set_exclusive(false)
+            .with_context(|| format!("failed to clear TIOCEXCL on {path}"))?;
+        Ok(Self { port: Box::new(port), name: path.to_string() })
     }
 }
 
@@ -73,7 +89,11 @@ impl SerialChannel {
     /// A connected pty pair, for tests: `.0` stands in for the host side, `.1`
     /// for the device side.
     pub fn pty_pair() -> Result<(Self, Self)> {
-        let (host, device) = serialport::TTYPort::pair().context("failed to allocate a pty pair")?;
+        let (mut host, mut device) =
+            serialport::TTYPort::pair().context("failed to allocate a pty pair")?;
+        // Same reasoning as `open`: never leave a sticky TIOCEXCL behind.
+        host.set_exclusive(false).ok();
+        device.set_exclusive(false).ok();
         let host_name = host.name().unwrap_or_else(|| "pty-host".into());
         let dev_name = device.name().unwrap_or_else(|| "pty-device".into());
         Ok((

@@ -41,7 +41,13 @@ fn install_handlers() -> Result<()> {
 }
 
 /// Re-exec ourselves as the proxy, returning its PID.
-pub fn spawn(id: &str, target: &str, firmware: &Path, lock_fd: RawFd) -> Result<i32> {
+pub fn spawn(
+    id: &str,
+    target: &str,
+    firmware: &Path,
+    skip_if_same: bool,
+    lock_fd: RawFd,
+) -> Result<i32> {
     let exe = std::env::current_exe().context("failed to resolve own executable path")?;
 
     let mut cmd = std::process::Command::new(exe);
@@ -52,6 +58,9 @@ pub fn spawn(id: &str, target: &str, firmware: &Path, lock_fd: RawFd) -> Result<
         .arg(target)
         .arg("--firmware")
         .arg(firmware);
+    if !skip_if_same {
+        cmd.arg("--force-reflash");
+    }
 
     // A deliberately minimal environment. The engine's environment carries
     // containerd auth tokens and TTRPC addresses; a long-lived process has no
@@ -98,8 +107,33 @@ pub fn is_alive(pid: i32) -> bool {
     pid > 0 && unsafe { libc::kill(pid, 0) } == 0
 }
 
+/// Block until `pid` is gone, or `timeout` elapses.
+///
+/// Returns whether it actually exited. We cannot `waitpid` here — the proxy is
+/// not our child, it was reparented to the engine's shim — so polling is the
+/// available mechanism.
+pub fn await_exit(pid: i32, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !is_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let still_running = is_alive(pid);
+    if still_running {
+        tracing::warn!(pid, "proxy did not exit within the timeout after SIGKILL");
+    }
+    !still_running
+}
+
 /// The proxy's own main loop.
-pub fn run(container_id: &str, target: &str, firmware: &Path) -> Result<i32> {
+pub fn run(
+    container_id: &str,
+    target: &str,
+    firmware: &Path,
+    skip_if_same: bool,
+) -> Result<i32> {
     install_handlers()?;
     trace::record(
         "proxy.waiting",
@@ -124,15 +158,30 @@ pub fn run(container_id: &str, target: &str, firmware: &Path) -> Result<i32> {
 
     trace::record("proxy.starting", json!({ "container_id": container_id }));
 
-    // Phase 2 — flash, then stay resident.
-    //
-    // Not yet implemented: the SMP upload, the log pump and the heartbeat loop.
-    // That is phase 0 step 2/3 and phase 1 work; the lifecycle skeleton around
-    // it is what is being proven first.
-    eprintln!(
-        "mcu-runtime: proxy up for container {container_id}, target {target}, \
-         firmware {} — SMP transport not yet implemented",
-        firmware.display()
+    // Phase 2 — deploy, then stay resident.
+    let parsed = transport::Target::parse(target)?;
+    let resolved = transport::resolve::resolve(&parsed)
+        .with_context(|| format!("could not resolve target {target}"))?;
+    tracing::info!(
+        mgmt = %resolved.mgmt.display(),
+        log = ?resolved.log.as_ref().map(|p| p.display().to_string()),
+        "resolved target"
     );
-    anyhow::bail!("SMP flashing not yet implemented")
+    if resolved.log.is_none() {
+        // Not a failure: single-channel targets and probe-UART bring-up both
+        // look like this. Say so, because silence here is confusing.
+        println!("mcu: single channel; application logs share the management link");
+    }
+
+    let deploy = crate::flash::Deploy {
+        target,
+        firmware,
+        resolved: resolved.clone(),
+        skip_if_same,
+    };
+    let client = deploy.run()?;
+
+    let stop = || SIGNAL_RECEIVED.load(Ordering::SeqCst) != 0;
+    crate::flash::stay_resident(client, resolved.log.as_deref(), &stop)?;
+    Ok(0)
 }

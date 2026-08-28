@@ -4,7 +4,6 @@
 //! on disk. Writes are atomic (temp + rename) so a crash mid-write cannot leave
 //! a half-parsed state file — and a stale PID must never be signalled.
 
-use crate::annotations;
 use anyhow::{bail, Context, Result};
 use oci_spec::runtime::{ContainerState, State};
 use std::collections::HashMap;
@@ -103,18 +102,10 @@ pub fn remove(root: &Path, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Read one of our own keys out of the state annotations map.
-pub fn annotation(state: &State, key: &str) -> Option<String> {
-    state.annotations().as_ref()?.get(key).cloned()
-}
-
+/// Record one of our keys in the state annotations map. These are written for
+/// observability — `docker inspect` and debugging — rather than read back.
 pub fn set_annotation(state: &mut State, key: &str, value: String) {
     let mut map = state.annotations().clone().unwrap_or_default();
     map.insert(key.to_string(), value);
     state.set_annotations(Some(map));
-}
-
-/// The target this container claimed, as recorded at create time.
-pub fn target(state: &State) -> Option<String> {
-    annotation(state, annotations::STATE_TARGET)
 }

@@ -7,6 +7,7 @@
 use anyhow::Result;
 use std::io::{Read, Write};
 
+pub mod resolve;
 pub mod usb;
 
 /// A target's placement label, transport-prefixed from day one so that

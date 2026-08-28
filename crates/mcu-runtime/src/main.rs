@@ -13,6 +13,7 @@
 //! is how you get opaque shim failures.
 
 mod annotations;
+mod flash;
 mod lock;
 mod proxy;
 mod state;
@@ -61,6 +62,9 @@ enum Command {
         target: String,
         #[arg(long)]
         firmware: PathBuf,
+        /// Upload even when the device already runs this digest.
+        #[arg(long)]
+        force_reflash: bool,
     },
 }
 
@@ -98,8 +102,8 @@ fn real_main() -> Result<()> {
             verbs::kill(&ctx, &c.container_id, &c.signal, c.all)
         }
         Command::Standard(StandardCmd::Delete(c)) => verbs::delete(&ctx, &c.container_id, c.force),
-        Command::Proxy { container_id, target, firmware } => {
-            let code = proxy::run(&container_id, &target, &firmware)?;
+        Command::Proxy { container_id, target, firmware, force_reflash } => {
+            let code = proxy::run(&container_id, &target, &firmware, !force_reflash)?;
             std::process::exit(code);
         }
     }
