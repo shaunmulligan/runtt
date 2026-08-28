@@ -1,6 +1,6 @@
 # The balena MCU wire contract
 
-**Version 1.1.0**
+**Version 1.2.0**
 
 The runtime and the firmware ship from different parties. The runtime is a host
 binary delivered with the OS; the firmware is a container image the customer
@@ -32,7 +32,7 @@ Opt-in Kconfig:
 | `BALENA_MCU_CHANNELS` | 2 | 1 for single-serial targets (see §3) |
 | `BALENA_MCU_IMG_MGMT` | follows `slot1_partition` | the update half of the contract |
 | `BALENA_MCU_SMP_DESCRIBE` | y | the identity command (§6) |
-| `BALENA_MCU_CONTRACT_VERSION` | `"1.1.0"` | what `describe` reports |
+| `BALENA_MCU_CONTRACT_VERSION` | `"1.2.0"` | what `describe` reports |
 | `BALENA_MCU_HEALTH` | **n** | application liveness (§7) |
 
 The only C API is one function, and it is optional:
@@ -178,11 +178,12 @@ command **0**, op **read**. Request is an empty CBOR map. Response:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `contract` | tstr | this document's version, e.g. `"1.1.0"` |
+| `contract` | tstr | this document's version, e.g. `"1.2.0"` |
 | `board` | tstr | `CONFIG_BOARD_TARGET`, e.g. `rpi_pico/rp2040` |
 | `app_version` | tstr | the application's own version |
 | `channels` | uint | 1 or 2, per §3 |
 | `img` | bool | whether the image group is implemented, i.e. whether this device can be updated at all |
+| `idle` | bool | true only for `balena-mcu-idle`, the provisioning placeholder — the board is working but has never received firmware |
 | `app_healthy` | bool | **present only if** `BALENA_MCU_HEALTH=y` (§7) |
 
 The runtime calls this **after echo and before any write**, and logs the result.
@@ -330,6 +331,7 @@ for us.
 
 | Version | Changes |
 |---|---|
+| 1.2.0 | `describe` gains `idle`, so a freshly provisioned board reports as such instead of looking like unrecognised firmware. Additive and backward compatible. |
 | 1.1.0 | `describe` gains `img`. Additive and backward compatible: a host seeing contract 1.0.0 firmware finds the field absent and should treat that as unknown rather than false. Added after a real board reported a bare `MGMT_ERR_ENOTSUP` where it could have explained itself. |
 | 1.0.0 | Initial contract: dual CDC-ACM with string-descriptor identity, SMP over console framing, os/img groups, `describe` at group 64, optional health. |
 

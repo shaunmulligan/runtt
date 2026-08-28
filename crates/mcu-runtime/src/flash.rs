@@ -291,14 +291,28 @@ impl Deploy<'_> {
             );
         }
 
-        println!(
-            "mcu: device is {} running {} (contract {}, {} channel{})",
-            d.board,
-            d.app_version,
-            d.contract,
-            d.channels,
-            if d.channels == 1 { "" } else { "s" }
-        );
+        if d.idle == Some(true) {
+            // A distinct and reassuring state: the board is provisioned and
+            // working, it simply has not been given firmware yet. Without this
+            // it is indistinguishable from running something unrecognised.
+            println!(
+                "mcu: device is {} freshly provisioned, awaiting its first firmware \
+                 (contract {}, {} channel{})",
+                d.board,
+                d.contract,
+                d.channels,
+                if d.channels == 1 { "" } else { "s" }
+            );
+        } else {
+            println!(
+                "mcu: device is {} running {} (contract {}, {} channel{})",
+                d.board,
+                d.app_version,
+                d.contract,
+                d.channels,
+                if d.channels == 1 { "" } else { "s" }
+            );
+        }
 
         // A channel-count disagreement is not fatal, but it explains a silent
         // log channel, which is otherwise a confusing thing to chase.

@@ -35,6 +35,11 @@ pub struct Describe {
     #[serde(default)]
     pub img: Option<bool>,
 
+    /// True only for `balena-mcu-idle`, the placeholder that ships in slot 0 at
+    /// provisioning time. Absent on firmware predating the field.
+    #[serde(default)]
+    pub idle: Option<bool>,
+
     /// Present only when the firmware opted into liveness reporting, so the host
     /// can distinguish "healthy" from "does not report health".
     #[serde(default)]

@@ -203,10 +203,12 @@ impl<T: Read + Write> Server<T> {
                 map(vec![])
             }
             (codec::GROUP_PERUSER, DESCRIBE) => map(vec![
-                ("contract", Value::Text("1.0.0".into())),
+                ("contract", Value::Text("1.2.0".into())),
                 ("board", Value::Text("smp-mock".into())),
                 ("app_version", Value::Text("0.1.0".into())),
                 ("channels", Value::Integer(2.into())),
+                ("img", Value::Bool(true)),
+                ("idle", Value::Bool(false)),
             ]),
             (g, c) => {
                 tracing::info!("unsupported group {g} cmd {c}");
