@@ -15,3 +15,8 @@
 *.hex
 *.elf
 /flash.bin
+
+# Local-only: host setup notes specific to one machine (paths, USB topology,
+# group membership). Useful to have to hand, not useful to anyone else, and not
+# something to publish.
+/docs/PREREQUISITES.md
