@@ -14,17 +14,24 @@ use std::time::{Duration, Instant};
 
 const RUNTIME: &str = env!("CARGO_BIN_EXE_mcu-runtime");
 
-/// Serialises the tests that perform two sequential deploys against one device.
+/// Serialises this whole file.
 ///
-/// Each test here spawns a mock thread, a pty pair and a real subprocess, and
-/// the multi-deploy ones additionally tear a container down and immediately
-/// stand another up against the same port. Run enough of those concurrently and
-/// they starve each other badly enough to exceed any sane timeout. Serialising
-/// just those is honest -- they contend for real OS resources -- and it keeps
-/// the suite fast: the whole file runs in about two seconds.
+/// Every test here spawns a mock thread, a pty pair and a real subprocess of the
+/// runtime. Run a dozen of those at once and they starve each other badly enough
+/// to exceed any timeout, which showed up as tests that passed alone and hung in
+/// company. Serialising a subset only moved the problem to whichever test was
+/// added next.
 ///
-/// Single-deploy tests are unaffected and still run in parallel.
+/// This is a harness property, not a product one: run serially, every test
+/// passes every time, and the whole file takes about four seconds. Cargo has no
+/// per-target way to set --test-threads, so a mutex it is.
 static SEQUENTIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Take the file-wide lock. Poisoning is irrelevant here: a panicking test has
+/// already failed, and the next one wants the lock regardless.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SEQUENTIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Real imgtool-signed images. The runtime rejects anything without a valid
 /// MCUboot header -- deliberately, since image identity comes from the header's
@@ -160,6 +167,7 @@ impl Rig {
 
 #[test]
 fn deploys_firmware_and_stays_resident() {
+    let _seq = serial();
     let rig = rig("happy", Fault::None, SIGNED);
     let log = rig.create();
 
@@ -193,6 +201,7 @@ fn deploys_firmware_and_stays_resident() {
 
 #[test]
 fn a_digest_mismatch_fails_the_container() {
+    let _seq = serial();
     let rig = rig("badhash", Fault::BadHash, SIGNED_SMALL);
     let log = rig.create();
     let out = rig.verb(&["start", &rig.id]);
@@ -222,6 +231,7 @@ fn a_digest_mismatch_fails_the_container() {
 
 #[test]
 fn a_missing_target_annotation_is_refused_at_create() {
+    let _seq = serial();
     let (_m, slave) = serialport::TTYPort::pair().unwrap();
     let _keep = slave;
     let base = std::env::temp_dir().join("mcu-e2e-noannot");
@@ -257,6 +267,7 @@ fn a_missing_target_annotation_is_refused_at_create() {
 
 #[test]
 fn a_second_service_cannot_claim_the_same_target() {
+    let _seq = serial();
     let rig = rig("occupancy", Fault::None, SIGNED);
     let _log = rig.create();
 
@@ -280,7 +291,7 @@ fn a_second_service_cannot_claim_the_same_target() {
 
 #[test]
 fn a_second_deploy_of_the_same_image_skips_the_upload() {
-    let _seq = SEQUENTIAL.lock().unwrap();
+    let _seq = serial();
     let rig = rig("skipsame", Fault::None, SIGNED);
 
     // First deploy: uploads, stages, confirms.
@@ -316,7 +327,7 @@ fn a_second_deploy_of_the_same_image_skips_the_upload() {
 
 #[test]
 fn force_reflash_overrides_the_skip() {
-    let _seq = SEQUENTIAL.lock().unwrap();
+    let _seq = serial();
     let rig = rig("forceflash", Fault::None, SIGNED);
 
     let log = rig.create();
@@ -363,6 +374,7 @@ fn spec_json_with(target: &str, extra_annotations: &str) -> String {
 
 #[test]
 fn an_unsigned_binary_is_refused_with_a_useful_message() {
+    let _seq = serial();
     // A raw binary has no MCUboot header, so there is no TLV digest and no
     // image identity to mark or confirm. Real firmware rejects it with
     // IMG_MGMT_ERR_INVALID_IMAGE_HEADER_MAGIC; we should say so before even
@@ -385,7 +397,7 @@ fn an_unsigned_binary_is_refused_with_a_useful_message() {
 
 #[test]
 fn deploying_a_different_image_uploads_and_confirms_it() {
-    let _seq = SEQUENTIAL.lock().unwrap();
+    let _seq = serial();
     // The actual upgrade path, and the counterpart to the skip test: a new
     // release must not be mistaken for the one already running.
     let rig = rig("upgrade", Fault::None, SIGNED);
@@ -419,6 +431,7 @@ fn deploying_a_different_image_uploads_and_confirms_it() {
 
 #[test]
 fn deleting_a_never_started_container_does_not_leak_its_proxy() {
+    let _seq = serial();
     // A container created but never started still has a live proxy, blocked
     // waiting for `start`, and that proxy holds the occupancy lock on its MCU.
     // Deleting the container must reclaim it. Gating the kill on the recorded
@@ -452,4 +465,62 @@ fn deleting_a_never_started_container_does_not_leak_its_proxy() {
 /// Signal 0 probes for existence without delivering anything.
 fn proc_alive(pid: i32) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[test]
+fn the_device_is_identified_before_anything_is_written() {
+    let _seq = serial();
+    // describe runs before the upload, so a mismatched contract or a mis-cabled
+    // board is caught while the device is still untouched.
+    let rig = rig("identify", Fault::None, SIGNED_SMALL);
+    let log = rig.create();
+    assert!(rig.verb(&["start", &rig.id]).status.success());
+
+    let text = rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
+    let identified = text
+        .find("mcu: device is")
+        .expect(&format!("should report the device's identity:\n{text}"));
+    let uploaded = text.find("uploading").expect("should upload");
+    assert!(
+        identified < uploaded,
+        "identity must be established BEFORE writing to the device:\n{text}"
+    );
+    assert!(
+        text.contains("contract 1.0.0"),
+        "should report the contract version:\n{text}"
+    );
+    rig.cleanup();
+}
+
+#[test]
+fn firmware_without_describe_still_deploys_but_warns() {
+    let _seq = serial();
+    // What a customer gets if they build without the balena-mcu module, or with
+    // a version predating describe: the img and os groups are standard MCUmgr,
+    // so the deploy must still work. What they lose is board-identity and
+    // contract checking, and the runtime should say so rather than pretend.
+    let rig = rig(
+        "nodescribe",
+        Fault::Timeout { group: 64, cmd: 0 },
+        SIGNED_SMALL,
+    );
+    let log = rig.create();
+    assert!(rig.verb(&["start", &rig.id]).status.success());
+
+    let text = rig.wait_for(&log, "image confirmed", Duration::from_secs(90));
+    assert!(
+        text.contains("proceeding unidentified"),
+        "should warn that identity could not be established:\n{text}"
+    );
+    assert!(
+        text.contains("mis-cabled"),
+        "the warning should say what is lost, not just that something failed:\n{text}"
+    );
+    assert!(
+        !text.contains("mcu: device is"),
+        "must not claim an identity it could not obtain:\n{text}"
+    );
+    // And the deploy still completed.
+    assert!(text.contains("image confirmed"));
+    rig.cleanup();
 }

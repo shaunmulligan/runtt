@@ -14,7 +14,25 @@ use std::time::Duration;
 
 pub struct ToolkitClient {
     inner: MCUmgrClient,
+    /// The normal operating timeout, restored after a probe.
+    timeout: Duration,
 }
+
+/// Restores the client's normal timeout and retry count when dropped.
+pub struct ProbeGuard<'a> {
+    client: &'a ToolkitClient,
+    restore: Duration,
+}
+
+impl Drop for ProbeGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.client.inner.set_timeout(self.restore);
+        self.client.inner.set_retries(DEFAULT_RETRIES);
+    }
+}
+
+/// `mcumgr-toolkit`'s own default, restored after a probe.
+const DEFAULT_RETRIES: u8 = 3;
 
 impl ToolkitClient {
     /// Wrap any byte pipe. The bound is `mcumgr-toolkit`'s, which is what lets
@@ -27,7 +45,7 @@ impl ToolkitClient {
         inner
             .set_timeout(timeout)
             .map_err(|e| anyhow::anyhow!("failed to set SMP timeout: {e}"))?;
-        Ok(Self { inner })
+        Ok(Self { inner, timeout })
     }
 
     /// Ask the device for its own buffer sizes and size frames accordingly,
@@ -36,6 +54,31 @@ impl ToolkitClient {
     pub fn tune_frame_size(&self) {
         if let Err(e) = self.inner.use_auto_frame_size() {
             tracing::debug!("could not auto-size SMP frames, keeping default: {e}");
+        }
+    }
+
+    /// Escape hatch for commands outside the five-method surface, including our
+    /// own `describe` group. Keeps the dependency's blast radius here.
+    pub(crate) fn raw<T: mcumgr_toolkit::commands::McuMgrCommand>(
+        &self,
+        command: &T,
+    ) -> Result<T::Response> {
+        self.inner
+            .raw_command(command)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Temporarily shorten the timeout and retry count for a cheap probe.
+    ///
+    /// Bulk operations want patience; a probe wants to fail fast. Restores the
+    /// previous settings on drop, so a probe cannot leave the client impatient
+    /// for the upload that follows.
+    pub fn probe_settings(&self, timeout: Duration, retries: u8) -> ProbeGuard<'_> {
+        let _ = self.inner.set_timeout(timeout);
+        self.inner.set_retries(retries);
+        ProbeGuard {
+            client: self,
+            restore: self.timeout,
         }
     }
 

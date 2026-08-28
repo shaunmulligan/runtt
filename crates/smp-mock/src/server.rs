@@ -76,31 +76,39 @@ impl<T: Read + Write> Server<T> {
     /// presents as an intermittent hang rather than a clear failure.
     pub fn serve(&mut self) -> Result<()> {
         let mut line = Vec::new();
-        let mut byte = [0u8; 1];
+        // Read in chunks rather than a byte at a time: an upload is thousands of
+        // bytes and one syscall per byte dominated the cost.
+        let mut buf = [0u8; 512];
+        let mut pending: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
         loop {
-            match self.io.read(&mut byte) {
-                Ok(0) => {
-                    // Host went away. Drop any half-assembled packet so the
-                    // next client starts clean, and keep waiting.
-                    line.clear();
-                    self.decoder = Decoder::new();
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    continue;
-                }
-                Ok(_) => {}
-                // A timeout on the device side just means the client is idle.
-                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                // EIO on a pty master means the slave side closed: same as EOF.
-                Err(_) => {
-                    line.clear();
-                    self.decoder = Decoder::new();
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    continue;
+            if pending.is_empty() {
+                match self.io.read(&mut buf) {
+                    Ok(0) => {
+                        // Host went away. Drop any half-assembled packet so the
+                        // next client starts clean, and keep waiting.
+                        line.clear();
+                        self.decoder = Decoder::new();
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        continue;
+                    }
+                    Ok(n) => pending.extend(&buf[..n]),
+                    // A timeout on the device side just means the client is idle.
+                    Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    // EIO on a pty master means the slave side closed: same as EOF.
+                    Err(_) => {
+                        line.clear();
+                        self.decoder = Decoder::new();
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        continue;
+                    }
                 }
             }
-            if byte[0] != b'\n' {
-                line.push(byte[0]);
+            let Some(b) = pending.pop_front() else {
+                continue;
+            };
+            if b != b'\n' {
+                line.push(b);
                 continue;
             }
 

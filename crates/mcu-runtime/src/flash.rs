@@ -30,6 +30,12 @@ const SMP_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long to wait for a board to come back after a reset.
 const REBOOT_GRACE: Duration = Duration::from_secs(30);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+/// The wire-contract major version this runtime implements. A device reporting a
+/// different major is refused rather than written to. See docs/WIRE_CONTRACT.md.
+const CONTRACT_MAJOR: u32 = 1;
+/// Describe is an optional probe, so it gets a short leash rather than the
+/// patience an upload needs.
+const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub struct Deploy<'a> {
     pub target: &'a str,
@@ -83,6 +89,12 @@ impl Deploy<'_> {
         let mut c = connect(&self.resolved.mgmt)?;
         c.echo("balena")
             .context("the device did not answer an SMP echo; is the firmware contract present?")?;
+
+        // Identify the device before writing anything to it. Placement is a USB
+        // port path, which is physical rather than an identity: re-cable a hub
+        // and the label still resolves, but now points at a different MCU. This
+        // is the cheap check that stops us pushing nRF firmware to an RP2040.
+        self.identify(&c)?;
 
         // Already running exactly this image, confirmed? Then there is nothing
         // to do, and reflashing would be a pointless write cycle plus a reboot.
@@ -198,6 +210,82 @@ impl Deploy<'_> {
             .context("failed to confirm the running image")?;
         println!("mcu: image confirmed");
         Ok(c)
+    }
+
+    /// Query the device's own account of itself, and refuse an incompatible one.
+    ///
+    /// Firmware predating the describe command is tolerated with a warning: the
+    /// img and os groups are standard MCUmgr, so such a device is still
+    /// manageable, just unidentified. What is *not* tolerated is a device that
+    /// answers describe with a contract major version we do not implement, since
+    /// that is a positive statement of incompatibility rather than an absence.
+    fn identify(&self, c: &ToolkitClient) -> Result<()> {
+        // Fail fast. Firmware without the module never answers this, and making
+        // every such deploy wait out the full upload timeout -- tens of seconds,
+        // several retries -- is a poor trade for an optional probe.
+        let d = {
+            let _probe = c.probe_settings(PROBE_TIMEOUT, 1);
+            c.describe()
+        };
+        let d = match d {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(
+                    "device did not answer describe ({e:#}); proceeding unidentified. \
+                     Board identity and contract version cannot be checked, so a \
+                     mis-cabled target will not be caught."
+                );
+                return Ok(());
+            }
+        };
+
+        let major = d
+            .contract
+            .split('.')
+            .next()
+            .and_then(|m| m.parse::<u32>().ok())
+            .with_context(|| {
+                format!(
+                    "device reported an unparseable contract version {:?}",
+                    d.contract
+                )
+            })?;
+        if major != CONTRACT_MAJOR {
+            bail!(
+                "contract mismatch: the device speaks contract {} but this runtime \
+                 implements major version {CONTRACT_MAJOR}. Refusing to write to it; \
+                 update whichever side is older.",
+                d.contract
+            );
+        }
+
+        println!(
+            "mcu: device is {} running {} (contract {}, {} channel{})",
+            d.board,
+            d.app_version,
+            d.contract,
+            d.channels,
+            if d.channels == 1 { "" } else { "s" }
+        );
+
+        // A channel-count disagreement is not fatal, but it explains a silent
+        // log channel, which is otherwise a confusing thing to chase.
+        let resolved_channels = if self.resolved.log.is_some() { 2 } else { 1 };
+        if d.channels != resolved_channels {
+            tracing::warn!(
+                device_reports = d.channels,
+                host_resolved = resolved_channels,
+                "channel count disagreement between the device and what the host resolved"
+            );
+        }
+
+        if d.app_healthy == Some(false) {
+            tracing::warn!(
+                "the device reports its application thread as unhealthy before we have \
+                 written anything to it"
+            );
+        }
+        Ok(())
     }
 
     /// Poll for the device to reappear and answer, within the reboot grace period.
