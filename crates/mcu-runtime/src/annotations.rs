@@ -12,6 +12,16 @@ pub const SPEC_TARGET: &str = "io.balena.mcu.target";
 /// Optional on the spec: skip the upload if the device already runs this digest.
 pub const SPEC_SKIP_IF_SAME: &str = "io.balena.mcu.skip-if-same-hash";
 
+/// Optional on the spec: where the log channel is, for transports that cannot
+/// discover it.
+///
+/// A `usb:` target finds both channels by interface string descriptor, so it
+/// needs nothing. A `tty:` target names exactly one device, so there is nowhere
+/// to put the second one -- which is the case for a simulator's pair of ptys and
+/// for bring-up over a probe's UART bridge. Without this the log channel is
+/// simply unreachable on those transports.
+pub const SPEC_LOG_TARGET: &str = "io.balena.mcu.log-target";
+
 // Keys we write into `state.json`'s annotations map. That map doubles as the
 // IPC channel between verb invocations, since each verb runs as a fresh
 // process with no memory of the last one.

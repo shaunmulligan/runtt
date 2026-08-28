@@ -71,6 +71,19 @@ pub fn create(ctx: &Ctx, id: &str, bundle: &Path, pid_file: Option<&Path>) -> Re
 
     let firmware = locate_firmware(&spec, bundle)?;
 
+    // Optional, and only meaningful for transports that cannot discover the log
+    // channel themselves. Parsed here so a malformed one fails at create rather
+    // than halfway through a deploy.
+    let log_target = spec
+        .annotations()
+        .as_ref()
+        .and_then(|a| a.get(annotations::SPEC_LOG_TARGET))
+        .cloned();
+    if let Some(lt) = &log_target {
+        transport::Target::parse(lt)
+            .with_context(|| format!("{} is not a valid target", annotations::SPEC_LOG_TARGET))?;
+    }
+
     // Default on: reflashing an image the device already runs is a pointless
     // write cycle and a pointless reboot. Opt out with the annotation set to
     // "false" when you want to force a rewrite (e.g. suspected flash corruption).
@@ -85,8 +98,15 @@ pub fn create(ctx: &Ctx, id: &str, bundle: &Path, pid_file: Option<&Path>) -> Re
     // create failure rather than a mysteriously dying container.
     let lock_fd = lock::acquire(&ctx.root, &target)?;
 
-    let pid = crate::proxy::spawn(id, &target, &firmware, skip_if_same, lock_fd)
-        .context("failed to spawn the resident proxy process")?;
+    let pid = crate::proxy::spawn(
+        id,
+        &target,
+        &firmware,
+        skip_if_same,
+        log_target.as_deref(),
+        lock_fd,
+    )
+    .context("failed to spawn the resident proxy process")?;
 
     // From here on, any failure must not leave an orphaned proxy holding the port.
     let mut guard = SpawnGuard { pid: Some(pid) };

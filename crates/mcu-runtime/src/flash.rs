@@ -142,17 +142,34 @@ impl Deploy<'_> {
             .context("firmware upload failed")?;
 
         // Cross-check what actually landed against what we sent. This catches a
-        // corrupted upload before we ever mark it bootable, and it confirms the
+        // corrupted upload before we mark anything bootable, and confirms the
         // device agrees with our own TLV parse.
-        let staged = c
-            .image_list()?
-            .into_iter()
-            .find(|s| !s.active && s.hash.as_deref() == Some(digest.as_slice()));
-        if staged.is_none() {
+        //
+        // Deliberately does NOT require the image to be in an *inactive* slot.
+        // A bootloader in serial recovery restoring a device with nothing in it
+        // writes straight to the primary slot and marks it confirmed, so the
+        // digest turns up active. Demanding an inactive slot rejected a
+        // perfectly good upload -- observed against MCUboot on an RP2040.
+        let slots = c.image_list()?;
+        let landed = slots
+            .iter()
+            .find(|s| s.hash.as_deref() == Some(digest.as_slice()));
+        let Some(landed) = landed else {
             bail!(
-                "after upload the device does not report an inactive image with                  digest {}. The upload did not land where expected.",
+                "after upload the device reports no image with digest {}. \
+                 The upload did not land where expected.",
                 hex(&digest)
             );
+        };
+
+        // Already running it, confirmed? Then a bootloader wrote it directly to
+        // the primary slot and there is nothing left to stage.
+        if landed.active && landed.confirmed {
+            println!("mcu: image written directly to the running slot and confirmed");
+            c.reset().context("failed to reset the device")?;
+            return self
+                .reconnect()
+                .context("device did not come back after reset");
         }
 
         // Mark TEST, never confirm. This is the invariant.

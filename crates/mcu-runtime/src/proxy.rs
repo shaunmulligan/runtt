@@ -42,11 +42,13 @@ fn install_handlers() -> Result<()> {
 }
 
 /// Re-exec ourselves as the proxy, returning its PID.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     id: &str,
     target: &str,
     firmware: &Path,
     skip_if_same: bool,
+    log_target: Option<&str>,
     lock_fd: RawFd,
 ) -> Result<i32> {
     let exe = std::env::current_exe().context("failed to resolve own executable path")?;
@@ -61,6 +63,9 @@ pub fn spawn(
         .arg(firmware);
     if !skip_if_same {
         cmd.arg("--force-reflash");
+    }
+    if let Some(lt) = log_target {
+        cmd.arg("--log-target").arg(lt);
     }
 
     // A deliberately minimal environment. The engine's environment carries
@@ -129,7 +134,13 @@ pub fn await_exit(pid: i32, timeout: std::time::Duration) -> bool {
 }
 
 /// The proxy's own main loop.
-pub fn run(container_id: &str, target: &str, firmware: &Path, skip_if_same: bool) -> Result<i32> {
+pub fn run(
+    container_id: &str,
+    target: &str,
+    firmware: &Path,
+    skip_if_same: bool,
+    log_target: Option<&str>,
+) -> Result<i32> {
     install_handlers()?;
     trace::record(
         "proxy.waiting",
@@ -167,6 +178,17 @@ pub fn run(container_id: &str, target: &str, firmware: &Path, skip_if_same: bool
         // Not a failure: single-channel targets and probe-UART bring-up both
         // look like this. Say so, because silence here is confusing.
         println!("mcu: single channel; application logs share the management link");
+    }
+
+    // An explicit log target overrides whatever the transport could work out,
+    // which is nothing at all for tty:.
+    let mut resolved = resolved;
+    if let Some(lt) = log_target {
+        let parsed = transport::Target::parse(lt)?;
+        let r = transport::resolve::resolve(&parsed)
+            .with_context(|| format!("could not resolve log target {lt}"))?;
+        tracing::info!(log = %r.mgmt.display(), "using the log channel given on the spec");
+        resolved.log = Some(r.mgmt);
     }
 
     let deploy = crate::flash::Deploy {

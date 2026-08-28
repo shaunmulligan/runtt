@@ -65,6 +65,9 @@ enum Command {
         /// Upload even when the device already runs this digest.
         #[arg(long)]
         force_reflash: bool,
+        /// Where the log channel is, when the transport cannot discover it.
+        #[arg(long)]
+        log_target: Option<String>,
     },
 }
 
@@ -107,8 +110,15 @@ fn real_main() -> Result<()> {
             target,
             firmware,
             force_reflash,
+            log_target,
         } => {
-            let code = proxy::run(&container_id, &target, &firmware, !force_reflash)?;
+            let code = proxy::run(
+                &container_id,
+                &target,
+                &firmware,
+                !force_reflash,
+                log_target.as_deref(),
+            )?;
             std::process::exit(code);
         }
     }
