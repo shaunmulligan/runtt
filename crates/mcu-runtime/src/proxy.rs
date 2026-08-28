@@ -13,9 +13,9 @@
 
 use crate::{lock, trace};
 use anyhow::{Context, Result};
-use std::os::unix::process::CommandExt;
 use serde_json::json;
 use std::os::fd::RawFd;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -34,7 +34,8 @@ fn install_handlers() -> Result<()> {
         // interrupted so shutdown is prompt.
         let rc = unsafe { libc::signal(sig, handle_signal as *const () as libc::sighandler_t) };
         if rc == libc::SIG_ERR {
-            return Err(std::io::Error::last_os_error()).context("failed to install signal handler");
+            return Err(std::io::Error::last_os_error())
+                .context("failed to install signal handler");
         }
     }
     Ok(())
@@ -128,12 +129,7 @@ pub fn await_exit(pid: i32, timeout: std::time::Duration) -> bool {
 }
 
 /// The proxy's own main loop.
-pub fn run(
-    container_id: &str,
-    target: &str,
-    firmware: &Path,
-    skip_if_same: bool,
-) -> Result<i32> {
+pub fn run(container_id: &str, target: &str, firmware: &Path, skip_if_same: bool) -> Result<i32> {
     install_handlers()?;
     trace::record(
         "proxy.waiting",

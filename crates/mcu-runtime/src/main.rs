@@ -102,7 +102,12 @@ fn real_main() -> Result<()> {
             verbs::kill(&ctx, &c.container_id, &c.signal, c.all)
         }
         Command::Standard(StandardCmd::Delete(c)) => verbs::delete(&ctx, &c.container_id, c.force),
-        Command::Proxy { container_id, target, firmware, force_reflash } => {
+        Command::Proxy {
+            container_id,
+            target,
+            firmware,
+            force_reflash,
+        } => {
             let code = proxy::run(&container_id, &target, &firmware, !force_reflash)?;
             std::process::exit(code);
         }
@@ -115,15 +120,18 @@ fn init_logging(global: &GlobalOpts) {
     use tracing_subscriber::EnvFilter;
 
     let default = if global.debug { "debug" } else { "info" };
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
 
     let json = global.log_format.as_deref() == Some("json");
 
     // Appending to the engine's log file is best-effort: if we cannot open it,
     // fall back to stderr rather than failing the container.
     let target: Box<dyn std::io::Write + Send + 'static> = match global.log.as_deref() {
-        Some(path) => match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        Some(path) => match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
             Ok(f) => Box::new(f),
             Err(_) => Box::new(std::io::stderr()),
         },

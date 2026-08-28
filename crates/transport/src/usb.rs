@@ -45,7 +45,10 @@ impl SerialChannel {
             .with_context(|| format!("failed to open serial port {path}"))?;
         port.set_exclusive(false)
             .with_context(|| format!("failed to clear TIOCEXCL on {path}"))?;
-        Ok(Self { port: Box::new(port), name: path.to_string() })
+        Ok(Self {
+            port: Box::new(port),
+            name: path.to_string(),
+        })
     }
 }
 
@@ -83,7 +86,10 @@ impl SerialChannel {
     /// Wrap an already-open port — used by the test harness to drive a pty pair
     /// and by native_sim, where the "port" is a `/dev/pts/N`.
     pub fn from_port(port: Box<dyn serialport::SerialPort>, name: impl Into<String>) -> Self {
-        Self { port, name: name.into() }
+        Self {
+            port,
+            name: name.into(),
+        }
     }
 
     /// A connected pty pair, for tests: `.0` stands in for the host side, `.1`

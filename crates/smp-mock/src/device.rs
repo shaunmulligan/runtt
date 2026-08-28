@@ -113,7 +113,9 @@ impl Device {
         } else if off != self.upload.received.len() as u64 {
             // The client is out of step; tell it where we actually are. This is
             // the resumable-offset behaviour the spec requires.
-            return UploadOutcome::Continue { off: self.upload.received.len() as u64 };
+            return UploadOutcome::Continue {
+                off: self.upload.received.len() as u64,
+            };
         }
 
         // Fault: demand a full restart once, at a chosen offset.
@@ -139,7 +141,9 @@ impl Device {
             && self.upload.received.len() as u64 >= self.upload.expected_len;
 
         if !complete {
-            return UploadOutcome::Continue { off: self.upload.received.len() as u64 };
+            return UploadOutcome::Continue {
+                off: self.upload.received.len() as u64,
+            };
         }
 
         // Complete: verify the digest the client declared up front.
@@ -156,7 +160,10 @@ impl Device {
             let img = Image::from_bytes(&self.upload.received, "2.0.0+staged");
             self.slot1 = Some(img);
         }
-        UploadOutcome::Complete { off: self.upload.received.len() as u64, matches }
+        UploadOutcome::Complete {
+            off: self.upload.received.len() as u64,
+            matches,
+        }
     }
 
     /// Mark an image by digest. `confirm=false` is test, `true` is permanent.
@@ -172,8 +179,7 @@ impl Device {
             return Err("no running image to confirm".into());
         };
 
-        if self.fault == Fault::DigestAlreadyFailed
-            && self.failed_digests.iter().any(|d| d == hash)
+        if self.fault == Fault::DigestAlreadyFailed && self.failed_digests.iter().any(|d| d == hash)
         {
             return Err("image with this digest already failed to boot".into());
         }
@@ -238,10 +244,18 @@ impl Device {
     pub fn image_states(&self) -> Vec<SlotReport> {
         let mut out = Vec::new();
         if let Some(s) = &self.slot0 {
-            out.push(SlotReport { slot: 0, active: true, img: s.clone() });
+            out.push(SlotReport {
+                slot: 0,
+                active: true,
+                img: s.clone(),
+            });
         }
         if let Some(s) = &self.slot1 {
-            out.push(SlotReport { slot: 1, active: false, img: s.clone() });
+            out.push(SlotReport {
+                slot: 1,
+                active: false,
+                img: s.clone(),
+            });
         }
         out
     }
@@ -295,7 +309,10 @@ mod tests {
     fn a_clean_upload_lands_in_slot_one_with_a_matching_digest() {
         let mut dev = Device::provisioned(Fault::None);
         let out = upload_whole(&mut dev, b"new-firmware-payload");
-        assert!(matches!(out, UploadOutcome::Complete { matches: true, .. }), "{out:?}");
+        assert!(
+            matches!(out, UploadOutcome::Complete { matches: true, .. }),
+            "{out:?}"
+        );
         assert!(dev.slot1.is_some());
         // Uploading must not disturb the running image.
         assert!(dev.slot0.as_ref().unwrap().confirmed);
@@ -308,12 +325,22 @@ mod tests {
         let staged = dev.slot1.as_ref().unwrap().hash.clone();
 
         dev.set_state(Some(&staged), false).unwrap();
-        assert!(dev.slot1.as_ref().unwrap().pending, "test mark should set pending");
+        assert!(
+            dev.slot1.as_ref().unwrap().pending,
+            "test mark should set pending"
+        );
         assert!(!dev.slot1.as_ref().unwrap().permanent);
 
         dev.reset();
-        assert_eq!(dev.slot0.as_ref().unwrap().hash, staged, "new image should be running");
-        assert!(!dev.slot0.as_ref().unwrap().confirmed, "must not self-confirm");
+        assert_eq!(
+            dev.slot0.as_ref().unwrap().hash,
+            staged,
+            "new image should be running"
+        );
+        assert!(
+            !dev.slot0.as_ref().unwrap().confirmed,
+            "must not self-confirm"
+        );
         assert!(dev.awaiting_confirm, "an unconfirmed image is on probation");
 
         // The runtime confirms only after the new image heartbeats.
@@ -321,7 +348,11 @@ mod tests {
         assert!(dev.slot0.as_ref().unwrap().confirmed);
 
         dev.reset();
-        assert_eq!(dev.slot0.as_ref().unwrap().hash, staged, "confirmed image must survive");
+        assert_eq!(
+            dev.slot0.as_ref().unwrap().hash,
+            staged,
+            "confirmed image must survive"
+        );
     }
 
     #[test]
@@ -337,8 +368,15 @@ mod tests {
 
         // No confirm arrives — the image never spoke SMP. Next reset reverts.
         dev.reset();
-        assert_eq!(dev.slot0.as_ref().unwrap().hash, factory, "must roll back to factory");
-        assert!(dev.failed_digests.contains(&staged), "the bad digest must be remembered");
+        assert_eq!(
+            dev.slot0.as_ref().unwrap().hash,
+            factory,
+            "must roll back to factory"
+        );
+        assert!(
+            dev.failed_digests.contains(&staged),
+            "the bad digest must be remembered"
+        );
     }
 
     #[test]
@@ -359,8 +397,14 @@ mod tests {
     fn fault_bad_hash_reports_no_match_and_stages_nothing() {
         let mut dev = Device::provisioned(Fault::BadHash);
         let out = upload_whole(&mut dev, b"payload-the-device-hashes-differently");
-        assert!(matches!(out, UploadOutcome::Complete { matches: false, .. }), "{out:?}");
-        assert!(dev.slot1.is_none(), "a digest mismatch must not stage an image");
+        assert!(
+            matches!(out, UploadOutcome::Complete { matches: false, .. }),
+            "{out:?}"
+        );
+        assert!(
+            dev.slot1.is_none(),
+            "a digest mismatch must not stage an image"
+        );
     }
 
     #[test]
@@ -378,8 +422,14 @@ mod tests {
         let out = upload_whole(&mut dev, &image);
         // The helper honours the off:0 demand and re-sends len and sha, so the
         // transfer must still complete.
-        assert!(matches!(out, UploadOutcome::Complete { matches: true, .. }), "{out:?}");
-        assert!(dev.upload.restart_demanded, "the restart should have been exercised");
+        assert!(
+            matches!(out, UploadOutcome::Complete { matches: true, .. }),
+            "{out:?}"
+        );
+        assert!(
+            dev.upload.restart_demanded,
+            "the restart should have been exercised"
+        );
     }
 
     #[test]
@@ -402,6 +452,10 @@ mod tests {
         dev.upload_chunk(0, Some(1024), Some(h.finalize().to_vec()), &image[..128]);
         // Claim to be much further along than we are.
         let out = dev.upload_chunk(900, None, None, &image[..64]);
-        assert_eq!(out, UploadOutcome::Continue { off: 128 }, "server offset is authoritative");
+        assert_eq!(
+            out,
+            UploadOutcome::Continue { off: 128 },
+            "server offset is authoritative"
+        );
     }
 }

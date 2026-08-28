@@ -22,12 +22,7 @@ pub struct Ctx {
     pub root: PathBuf,
 }
 
-pub fn create(
-    ctx: &Ctx,
-    id: &str,
-    bundle: &Path,
-    pid_file: Option<&Path>,
-) -> Result<()> {
+pub fn create(ctx: &Ctx, id: &str, bundle: &Path, pid_file: Option<&Path>) -> Result<()> {
     state::validate_container_id(id)?;
 
     let spec_path = bundle.join("config.json");
@@ -151,7 +146,11 @@ fn locate_firmware(spec: &Spec, bundle: &Path) -> Result<PathBuf> {
         .as_ref()
         .map(|r| r.path().to_path_buf())
         .ok_or_else(|| anyhow::anyhow!("spec has no root path"))?;
-    let rootfs = if rootfs.is_absolute() { rootfs } else { bundle.join(rootfs) };
+    let rootfs = if rootfs.is_absolute() {
+        rootfs
+    } else {
+        bundle.join(rootfs)
+    };
 
     let path = rootfs.join(&args[0]);
     if !path.exists() {
@@ -259,16 +258,67 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
+/// Parse a signal as the engine sends it.
+///
+/// **Accept any valid signal number, not a whitelist.** Engines send more than
+/// the obvious four: podman sends `18` (SIGCONT) during teardown, and rejecting
+/// it makes the `kill` verb fail for no reason. runc forwards arbitrary signals,
+/// so we do too — the resident proxy decides what to act on.
 fn parse_signal(input: &str) -> Result<i32> {
-    let s = input.trim().to_ascii_uppercase();
-    let s = s.strip_prefix("SIG").unwrap_or(&s);
-    Ok(match s {
-        "KILL" | "9" => libc::SIGKILL,
-        "TERM" | "15" => libc::SIGTERM,
-        "INT" | "2" => libc::SIGINT,
-        "USR1" | "10" => libc::SIGUSR1,
-        "HUP" | "1" => libc::SIGHUP,
-        "QUIT" | "3" => libc::SIGQUIT,
-        other => bail!("unsupported signal {other:?} (supported: TERM, KILL, INT, USR1, HUP, QUIT)"),
+    let raw = input.trim();
+    if let Ok(n) = raw.parse::<i32>() {
+        // 1..=64 covers standard and realtime signals on Linux.
+        if (1..=64).contains(&n) {
+            return Ok(n);
+        }
+        bail!("signal number {n} is out of range (1-64)");
+    }
+
+    let name = raw.to_ascii_uppercase();
+    let name = name.strip_prefix("SIG").unwrap_or(&name);
+    Ok(match name {
+        "HUP" => libc::SIGHUP,
+        "INT" => libc::SIGINT,
+        "QUIT" => libc::SIGQUIT,
+        "ABRT" => libc::SIGABRT,
+        "KILL" => libc::SIGKILL,
+        "USR1" => libc::SIGUSR1,
+        "USR2" => libc::SIGUSR2,
+        "TERM" => libc::SIGTERM,
+        "CONT" => libc::SIGCONT,
+        "STOP" => libc::SIGSTOP,
+        "TSTP" => libc::SIGTSTP,
+        "WINCH" => libc::SIGWINCH,
+        other => bail!("unrecognised signal name {other:?}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_signal;
+
+    #[test]
+    fn accepts_the_signals_engines_actually_send() {
+        // containerd sends a bare number; podman sent 18 (SIGCONT) during
+        // teardown and an earlier whitelist rejected it.
+        assert_eq!(parse_signal("9").unwrap(), libc::SIGKILL);
+        assert_eq!(parse_signal("15").unwrap(), libc::SIGTERM);
+        assert_eq!(parse_signal("18").unwrap(), libc::SIGCONT);
+        assert_eq!(parse_signal("KILL").unwrap(), libc::SIGKILL);
+        assert_eq!(parse_signal("SIGTERM").unwrap(), libc::SIGTERM);
+        assert_eq!(parse_signal("sigcont").unwrap(), libc::SIGCONT);
+    }
+
+    #[test]
+    fn accepts_realtime_signals_by_number() {
+        assert_eq!(parse_signal("34").unwrap(), 34);
+        assert_eq!(parse_signal("64").unwrap(), 64);
+    }
+
+    #[test]
+    fn rejects_nonsense_but_not_merely_unusual() {
+        assert!(parse_signal("0").is_err(), "0 is not a deliverable signal");
+        assert!(parse_signal("99").is_err());
+        assert!(parse_signal("BANANA").is_err());
+    }
 }

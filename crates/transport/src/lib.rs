@@ -26,19 +26,26 @@ pub enum Target {
 impl Target {
     /// Parse a placement label. Unknown prefixes are an error, not a guess.
     pub fn parse(label: &str) -> Result<Self> {
-        let (prefix, rest) = label
-            .split_once(':')
-            .ok_or_else(|| anyhow::anyhow!(
+        let (prefix, rest) = label.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!(
                 "placement label {label:?} has no transport prefix; expected e.g. `usb:3-6`"
-            ))?;
+            )
+        })?;
         match prefix {
-            "usb" => Ok(Target::Usb { port_path: rest.to_string() }),
-            "tty" => Ok(Target::Tty { device: rest.to_string() }),
+            "usb" => Ok(Target::Usb {
+                port_path: rest.to_string(),
+            }),
+            "tty" => Ok(Target::Tty {
+                device: rest.to_string(),
+            }),
             "can" => {
                 let (iface, node_id) = rest.split_once('/').ok_or_else(|| {
                     anyhow::anyhow!("can target {rest:?} must be `can:<iface>/<node-id>`")
                 })?;
-                Ok(Target::Can { iface: iface.to_string(), node_id: node_id.to_string() })
+                Ok(Target::Can {
+                    iface: iface.to_string(),
+                    node_id: node_id.to_string(),
+                })
             }
             other => anyhow::bail!(
                 "unknown transport prefix {other:?} in {label:?}; known: usb, tty, can"

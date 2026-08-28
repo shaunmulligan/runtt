@@ -44,7 +44,10 @@ pub fn record(event: &str, extra: Value) {
         "extra": extra,
     });
     let _ = (|| -> std::io::Result<()> {
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
         // World-writable: the engine runs us as root, but a developer reading
         // the trace afterwards is not root. This file is a debug aid only.
         let _ = f.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));

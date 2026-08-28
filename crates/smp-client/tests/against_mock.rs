@@ -39,7 +39,11 @@ fn echo_round_trips_through_our_own_framing() {
 fn a_freshly_provisioned_device_reports_one_confirmed_active_slot() {
     let (mut c, _srv) = rig(Fault::None);
     let slots = c.image_list().expect("image list");
-    assert_eq!(slots.len(), 1, "provisioned board has slot 0 only: {slots:?}");
+    assert_eq!(
+        slots.len(),
+        1,
+        "provisioned board has slot 0 only: {slots:?}"
+    );
     let s0 = &slots[0];
     assert_eq!(s0.slot, 0);
     assert!(s0.active, "slot 0 is running");
@@ -61,7 +65,7 @@ fn the_full_happy_path_upload_test_reset_confirm() {
     let staged = slots
         .iter()
         .find(|s| s.slot == 1)
-        .expect(&format!("slot 1 should be populated: {slots:?}"));
+        .unwrap_or_else(|| panic!("slot 1 should be populated: {slots:?}"));
     assert_eq!(
         staged.hash.as_deref(),
         Some(expected.as_slice()),
@@ -82,7 +86,11 @@ fn the_full_happy_path_upload_test_reset_confirm() {
     // The new image is now running but unconfirmed.
     let slots = c.image_list().expect("image list after reset");
     let running = slots.iter().find(|s| s.slot == 0).unwrap();
-    assert_eq!(running.hash.as_deref(), Some(expected.as_slice()), "new image should run");
+    assert_eq!(
+        running.hash.as_deref(),
+        Some(expected.as_slice()),
+        "new image should run"
+    );
     assert!(!running.confirmed, "it must not confirm itself");
 
     // Only now, having spoken SMP, may it be confirmed.
@@ -95,7 +103,9 @@ fn the_full_happy_path_upload_test_reset_confirm() {
 fn fault_bad_hash_is_reported_as_an_upload_failure() {
     let (mut c, _srv) = rig(Fault::BadHash);
     let image = vec![0x42u8; 2048];
-    let err = c.flash(&image, None).expect_err("a digest mismatch must fail the upload");
+    let err = c
+        .flash(&image, None)
+        .expect_err("a digest mismatch must fail the upload");
     let msg = format!("{err:#}").to_lowercase();
     assert!(
         msg.contains("hash") || msg.contains("match") || msg.contains("upload"),
@@ -107,14 +117,19 @@ fn fault_bad_hash_is_reported_as_an_upload_failure() {
 fn fault_disconnect_mid_upload_surfaces_as_an_error_not_a_hang() {
     let (mut c, _srv) = rig(Fault::DisconnectMidUpload { after_chunks: 1 });
     let image = vec![0x11u8; 8192];
-    let err = c.flash(&image, None).expect_err("a silent device must not look like success");
+    let err = c
+        .flash(&image, None)
+        .expect_err("a silent device must not look like success");
     assert!(!format!("{err:#}").is_empty());
 }
 
 #[test]
 fn fault_timeout_on_echo_surfaces_as_an_error() {
     let (mut c, _srv) = rig(Fault::Timeout { group: 0, cmd: 0 });
-    assert!(c.echo("hello").is_err(), "a withheld response must time out");
+    assert!(
+        c.echo("hello").is_err(),
+        "a withheld response must time out"
+    );
 }
 
 #[test]
@@ -145,10 +160,17 @@ fn progress_is_reported_monotonically_to_completion() {
     let mut rec = Rec { seen: Vec::new() };
     c.flash(&image, Some(&mut rec)).expect("upload");
 
-    assert!(!rec.seen.is_empty(), "progress should be reported at least once");
+    assert!(
+        !rec.seen.is_empty(),
+        "progress should be reported at least once"
+    );
     let mut last = 0;
     for (done, total) in &rec.seen {
-        assert!(*done >= last, "progress must not go backwards: {:?}", rec.seen);
+        assert!(
+            *done >= last,
+            "progress must not go backwards: {:?}",
+            rec.seen
+        );
         assert_eq!(*total, image.len() as u64, "total should be the image size");
         last = *done;
     }

@@ -229,7 +229,15 @@ mod tests {
         // Captured from mcumgr-toolkit 0.16.0 over a pty: read = 0x08,
         // write = 0x0a. Both carry version 1.
         for (op, expected) in [(OP_READ, 0x08u8), (OP_WRITE, 0x0a)] {
-            let f = Frame { op, version: 1, flags: 0, group: 0, seq: 0, cmd: 0, payload: vec![] };
+            let f = Frame {
+                op,
+                version: 1,
+                flags: 0,
+                group: 0,
+                seq: 0,
+                cmd: 0,
+                payload: vec![],
+            };
             assert_eq!(f.header_bytes()[0], expected, "op {op}");
         }
         // And the parse is the exact inverse.
@@ -261,7 +269,10 @@ mod tests {
         };
         // 0x0a = version 1 in bits 3-4, op 2 in bits 0-2. This is the exact
         // byte mcumgr-toolkit was observed to send for a write.
-        assert_eq!(f.header_bytes(), [0x0a, 0x00, 0x00, 0x01, 0x01, 0x02, 0x42, 0x07]);
+        assert_eq!(
+            f.header_bytes(),
+            [0x0a, 0x00, 0x00, 0x01, 0x01, 0x02, 0x42, 0x07]
+        );
     }
 
     #[test]
@@ -269,7 +280,15 @@ mod tests {
         // Group 64 (PERUSER) must survive the round trip; an 8-bit group field
         // would still pass, so also check a group above 255.
         for group in [GROUP_OS, GROUP_IMG, GROUP_PERUSER, 300, 0xBEEF] {
-            let f = Frame { op: OP_READ, version: 1, flags: 0, group, seq: 1, cmd: 0, payload: vec![0xa0] };
+            let f = Frame {
+                op: OP_READ,
+                version: 1,
+                flags: 0,
+                group,
+                seq: 1,
+                cmd: 0,
+                payload: vec![0xa0],
+            };
             let wire = encode(&f, MAX_LINE).unwrap();
             let body = feed(&wire).expect("a complete packet");
             assert_eq!(Frame::parse(&body).unwrap().group, group);
@@ -278,7 +297,15 @@ mod tests {
 
     #[test]
     fn round_trips_a_single_line_packet() {
-        let f = Frame { op: OP_WRITE, version: 1, flags: 0, group: GROUP_OS, seq: 9, cmd: 0, payload: vec![0xa0] };
+        let f = Frame {
+            op: OP_WRITE,
+            version: 1,
+            flags: 0,
+            group: GROUP_OS,
+            seq: 9,
+            cmd: 0,
+            payload: vec![0xa0],
+        };
         let wire = encode(&f, MAX_LINE).unwrap();
         assert_eq!(&wire[..2], &MARKER_START);
         assert_eq!(*wire.last().unwrap(), b'\n');
@@ -298,8 +325,15 @@ mod tests {
             payload: (0..512).map(|i| (i % 251) as u8).collect(),
         };
         let wire = encode(&f, MAX_LINE).unwrap();
-        let lines: Vec<&[u8]> = wire.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
-        assert!(lines.len() > 1, "expected fragmentation, got {} line(s)", lines.len());
+        let lines: Vec<&[u8]> = wire
+            .split(|b| *b == b'\n')
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert!(
+            lines.len() > 1,
+            "expected fragmentation, got {} line(s)",
+            lines.len()
+        );
         assert_eq!(&lines[0][..2], &MARKER_START);
         for l in &lines[1..] {
             assert_eq!(&l[..2], &MARKER_CONT, "continuations must use 0x04 0x14");
@@ -310,18 +344,35 @@ mod tests {
     #[test]
     fn every_line_respects_the_127_byte_limit() {
         let f = Frame {
-            op: OP_WRITE, version: 1, flags: 0, group: GROUP_IMG, seq: 0, cmd: 1,
+            op: OP_WRITE,
+            version: 1,
+            flags: 0,
+            group: GROUP_IMG,
+            seq: 0,
+            cmd: 1,
             payload: vec![0x41; 4096],
         };
         let wire = encode(&f, MAX_LINE).unwrap();
         for line in wire.split_inclusive(|b| *b == b'\n') {
-            assert!(line.len() <= MAX_LINE, "line of {} bytes exceeds 127", line.len());
+            assert!(
+                line.len() <= MAX_LINE,
+                "line of {} bytes exceeds 127",
+                line.len()
+            );
         }
     }
 
     #[test]
     fn rejects_a_corrupted_crc() {
-        let f = Frame { op: OP_WRITE, version: 1, flags: 0, group: GROUP_OS, seq: 1, cmd: 0, payload: vec![0xa0] };
+        let f = Frame {
+            op: OP_WRITE,
+            version: 1,
+            flags: 0,
+            group: GROUP_OS,
+            seq: 1,
+            cmd: 0,
+            payload: vec![0xa0],
+        };
         let wire = encode(&f, MAX_LINE).unwrap();
         let line: Vec<u8> = wire.iter().copied().filter(|b| *b != b'\n').collect();
         // Flip a base64 character in the middle of the encoded body.
@@ -329,7 +380,10 @@ mod tests {
         let i = corrupted.len() / 2;
         corrupted[i] = if corrupted[i] == b'A' { b'B' } else { b'A' };
         let mut d = Decoder::new();
-        assert!(d.push_line(&corrupted).is_err(), "a flipped byte must not verify");
+        assert!(
+            d.push_line(&corrupted).is_err(),
+            "a flipped byte must not verify"
+        );
     }
 
     #[test]

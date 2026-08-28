@@ -79,9 +79,9 @@ pub fn write(root: &Path, state: &State) -> Result<()> {
     std::fs::write(&tmp_path, &json)
         .with_context(|| format!("failed to write {}", tmp_path.display()))?;
     // Atomic: a reader sees either the old file or the new one, never a partial.
-    std::fs::rename(&tmp_path, &final_path).map_err(|e| {
+    std::fs::rename(&tmp_path, &final_path).inspect_err(|_| {
+        // Do not leave a stray .tmp behind if the rename failed.
         let _ = std::fs::remove_file(&tmp_path);
-        e
     })?;
     Ok(())
 }

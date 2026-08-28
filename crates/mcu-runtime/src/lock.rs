@@ -17,7 +17,13 @@ pub const LOCK_FD_ENV: &str = "MCU_RUNTIME_LOCK_FD";
 fn lock_name(target: &str) -> String {
     let safe: String = target
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("occupancy-{safe}.lock")
 }
@@ -32,6 +38,10 @@ pub fn acquire(root: &Path, target: &str) -> Result<RawFd> {
         .create(true)
         .read(true)
         .write(true)
+        // Explicitly do not truncate: the file's contents are irrelevant (the
+        // lock lives in the kernel, not the file), and another holder may have
+        // it open.
+        .truncate(false)
         .open(&path)
         .with_context(|| format!("failed to open lock file {}", path.display()))?;
 

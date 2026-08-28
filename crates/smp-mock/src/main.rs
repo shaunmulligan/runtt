@@ -14,7 +14,10 @@ use smp_mock::server::Server;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
-#[command(name = "smp-mock", about = "A deterministic SMP server for testing error paths")]
+#[command(
+    name = "smp-mock",
+    about = "A deterministic SMP server for testing error paths"
+)]
 struct Args {
     /// Which fault to inject.
     #[arg(long, value_enum, default_value = "none")]
@@ -68,7 +71,9 @@ fn main() -> Result<()> {
             after_chunks: args.after_chunks,
         },
         FaultArg::BadHash => Fault::BadHash,
-        FaultArg::RestartUpload => Fault::RestartUpload { at_offset: args.at_offset },
+        FaultArg::RestartUpload => Fault::RestartUpload {
+            at_offset: args.at_offset,
+        },
         FaultArg::Timeout => Fault::Timeout {
             group: args.timeout_group,
             cmd: args.timeout_cmd,

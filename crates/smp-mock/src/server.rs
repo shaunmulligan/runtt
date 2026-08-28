@@ -10,6 +10,10 @@ use std::io::{Read, Write};
 /// os group command ids.
 const OS_ECHO: u8 = 0;
 const OS_RESET: u8 = 5;
+/// MCUmgr buffer parameters. A client uses this to size its frames instead of
+/// assuming Zephyr's defaults, so a mock that answers ENOTSUP here silently
+/// pushes every client onto the fallback path.
+const OS_MCUMGR_PARAMS: u8 = 6;
 /// img group command ids.
 const IMG_STATE: u8 = 0;
 const IMG_UPLOAD: u8 = 1;
@@ -29,7 +33,10 @@ fn error_payload(version: u8, group: u16, rc: i64) -> Vec<u8> {
         map(vec![(
             "err",
             Value::Map(vec![
-                (Value::Text("group".into()), Value::Integer((group as i64).into())),
+                (
+                    Value::Text("group".into()),
+                    Value::Integer((group as i64).into()),
+                ),
                 (Value::Text("rc".into()), Value::Integer(rc.into())),
             ]),
         )])
@@ -123,6 +130,12 @@ impl<T: Read + Write> Server<T> {
                 let d = get_str(&payload, "d").unwrap_or_default();
                 map(vec![("r", Value::Text(d))])
             }
+            (codec::GROUP_OS, OS_MCUMGR_PARAMS) => map(vec![
+                // Matches Zephyr's own defaults: CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE
+                // and _COUNT. buf_size includes the SMP header.
+                ("buf_size", Value::Integer(384.into())),
+                ("buf_count", Value::Integer(4.into())),
+            ]),
             (codec::GROUP_OS, OS_RESET) => {
                 self.dev.reset();
                 map(vec![])
@@ -194,14 +207,26 @@ impl<T: Read + Write> Server<T> {
             .map(|r| {
                 Value::Map(vec![
                     (Value::Text("image".into()), Value::Integer(0.into())),
-                    (Value::Text("slot".into()), Value::Integer((r.slot as i64).into())),
-                    (Value::Text("version".into()), Value::Text(r.img.version.clone())),
+                    (
+                        Value::Text("slot".into()),
+                        Value::Integer((r.slot as i64).into()),
+                    ),
+                    (
+                        Value::Text("version".into()),
+                        Value::Text(r.img.version.clone()),
+                    ),
                     (Value::Text("hash".into()), Value::Bytes(r.img.hash.clone())),
                     (Value::Text("bootable".into()), Value::Bool(r.img.bootable)),
                     (Value::Text("pending".into()), Value::Bool(r.img.pending)),
-                    (Value::Text("confirmed".into()), Value::Bool(r.img.confirmed)),
+                    (
+                        Value::Text("confirmed".into()),
+                        Value::Bool(r.img.confirmed),
+                    ),
                     (Value::Text("active".into()), Value::Bool(r.active)),
-                    (Value::Text("permanent".into()), Value::Bool(r.img.permanent)),
+                    (
+                        Value::Text("permanent".into()),
+                        Value::Bool(r.img.permanent),
+                    ),
                 ])
             })
             .collect();

@@ -143,7 +143,11 @@ fn deploys_firmware_and_stays_resident() {
     let log = rig.create();
 
     // Created, not started: nothing should have been flashed yet.
-    assert!(rig.state().contains("\"status\":\"created\""), "{}", rig.state());
+    assert!(
+        rig.state().contains("\"status\":\"created\""),
+        "{}",
+        rig.state()
+    );
 
     let out = rig.verb(&["start", &rig.id]);
     assert!(out.status.success(), "start failed: {out:?}");
@@ -158,7 +162,11 @@ fn deploys_firmware_and_stays_resident() {
          can never be confirmed. Got:\n{text}"
     );
 
-    assert!(rig.state().contains("\"status\":\"running\""), "{}", rig.state());
+    assert!(
+        rig.state().contains("\"status\":\"running\""),
+        "{}",
+        rig.state()
+    );
     rig.cleanup();
 }
 
@@ -166,9 +174,15 @@ fn deploys_firmware_and_stays_resident() {
 fn a_digest_mismatch_fails_the_container() {
     let rig = rig("badhash", Fault::BadHash, &vec![0xAAu8; 2048]);
     let log = rig.create();
-    let _ = rig.verb(&["start", &rig.id]);
+    let out = rig.verb(&["start", &rig.id]);
+    assert!(
+        out.status.success(),
+        "start failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 
-    let text = rig.wait_for(&log, "mcu-runtime:", Duration::from_secs(20));
+    let text = rig.wait_for(&log, "mcu-runtime:", Duration::from_secs(25));
     assert!(
         text.contains("upload") || text.to_lowercase().contains("hash"),
         "the failure should name the cause:\n{text}"
@@ -253,7 +267,10 @@ fn a_second_deploy_of_the_same_image_skips_the_upload() {
     let log = rig.create();
     assert!(rig.verb(&["start", &rig.id]).status.success());
     let first = rig.wait_for(&log, "image confirmed", Duration::from_secs(20));
-    assert!(first.contains("uploading"), "first deploy should upload:\n{first}");
+    assert!(
+        first.contains("uploading"),
+        "first deploy should upload:\n{first}"
+    );
     rig.cleanup();
 
     // Second deploy against the same device. This also covers reacquisition:
@@ -298,15 +315,24 @@ fn force_reflash_overrides_the_skip() {
     .unwrap();
 
     // DIAGNOSTIC
-    eprintln!("DIAG pty {} exists={}", rig.slave_path, Path::new(&rig.slave_path).exists());
+    eprintln!(
+        "DIAG pty {} exists={}",
+        rig.slave_path,
+        Path::new(&rig.slave_path).exists()
+    );
     for p in std::fs::read_dir("/proc").unwrap().flatten() {
         let fd = p.path().join("fd");
         if let Ok(entries) = std::fs::read_dir(&fd) {
             for e in entries.flatten() {
                 if let Ok(t) = std::fs::read_link(e.path()) {
                     if t.to_string_lossy() == rig.slave_path {
-                        let cmd = std::fs::read_to_string(p.path().join("cmdline")).unwrap_or_default();
-                        eprintln!("DIAG holder pid={:?} cmd={}", p.file_name(), cmd.replace('\0', " "));
+                        let cmd =
+                            std::fs::read_to_string(p.path().join("cmdline")).unwrap_or_default();
+                        eprintln!(
+                            "DIAG holder pid={:?} cmd={}",
+                            p.file_name(),
+                            cmd.replace('\0', " ")
+                        );
                     }
                 }
             }

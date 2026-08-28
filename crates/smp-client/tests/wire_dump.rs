@@ -11,18 +11,33 @@ fn capture(op: &'static str) -> Option<Vec<u8>> {
         use smp_client::SmpClient;
         let mut c = smp_client::ToolkitClient::new(host, Duration::from_millis(600)).unwrap();
         match op {
-            "echo" => { let _ = c.echo("hi"); }
-            "list" => { let _ = c.image_list(); }
-            "reset" => { let _ = c.reset(); }
-            "setstate" => { let _ = c.set_state(&[0u8; 32], true); }
+            "echo" => {
+                let _ = c.echo("hi");
+            }
+            "list" => {
+                let _ = c.image_list();
+            }
+            "reset" => {
+                let _ = c.reset();
+            }
+            "setstate" => {
+                let _ = c.set_state(&[0u8; 32], true);
+            }
             _ => {}
         }
     });
     std::thread::sleep(Duration::from_millis(250));
     let mut buf = vec![0u8; 4096];
     let n = device.read(&mut buf).unwrap_or(0);
-    if n < 3 { return None; }
-    let line: Vec<u8> = buf[..n].iter().copied().filter(|b| *b != b'\n').skip(2).collect();
+    if n < 3 {
+        return None;
+    }
+    let line: Vec<u8> = buf[..n]
+        .iter()
+        .copied()
+        .filter(|b| *b != b'\n')
+        .skip(2)
+        .collect();
     base64::engine::general_purpose::STANDARD.decode(&line).ok()
 }
 
@@ -35,8 +50,10 @@ fn compare_header_byte0_across_ops() {
                 let h = &d[2..10];
                 eprintln!(
                     "{op:9} byte0={:#04x} ({:08b})  group={:5} cmd={}  paylen={}",
-                    h[0], h[0],
-                    u16::from_be_bytes([h[4], h[5]]), h[7],
+                    h[0],
+                    h[0],
+                    u16::from_be_bytes([h[4], h[5]]),
+                    h[7],
                     u16::from_be_bytes([h[2], h[3]])
                 );
             }

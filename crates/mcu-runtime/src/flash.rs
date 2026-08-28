@@ -66,9 +66,8 @@ impl Deploy<'_> {
         );
 
         let mut c = connect(&self.resolved.mgmt)?;
-        c.echo("balena").context(
-            "the device did not answer an SMP echo; is the firmware contract present?",
-        )?;
+        c.echo("balena")
+            .context("the device did not answer an SMP echo; is the firmware contract present?")?;
 
         // Already running exactly this image, confirmed? Then there is nothing
         // to do, and reflashing would be a pointless write cycle plus a reboot.
@@ -102,13 +101,15 @@ impl Deploy<'_> {
             fn advance(&mut self, done: u64, total: u64) {
                 // Throttle: a 200 KB image over 115200 baud is thousands of chunks.
                 if self.last.elapsed() >= Duration::from_secs(2) || done == total {
-                    let pct = if total > 0 { done * 100 / total } else { 0 };
+                    let pct = (done * 100).checked_div(total).unwrap_or(0);
                     println!("mcu: uploading {done}/{total} bytes ({pct}%)");
                     self.last = Instant::now();
                 }
             }
         }
-        let mut progress = Log { last: Instant::now() };
+        let mut progress = Log {
+            last: Instant::now(),
+        };
 
         c.flash(&image, Some(&mut progress))
             .context("firmware upload failed")?;
@@ -135,7 +136,11 @@ impl Deploy<'_> {
             bail!(
                 "after reset the device is running digest {} but we deployed {}. \
                  The bootloader rejected or reverted the image.",
-                active.hash.as_deref().map(hex).unwrap_or_else(|| "<none>".into()),
+                active
+                    .hash
+                    .as_deref()
+                    .map(hex)
+                    .unwrap_or_else(|| "<none>".into()),
                 hex(&digest)
             );
         }
@@ -221,7 +226,8 @@ pub fn stay_resident(
 fn pump_logs(path: &Path) -> Result<()> {
     use std::io::{BufRead, BufReader};
     let ch = SerialChannel::open(
-        path.to_str().context("log device path is not valid UTF-8")?,
+        path.to_str()
+            .context("log device path is not valid UTF-8")?,
         BAUD,
         Duration::from_secs(3600),
     )?;

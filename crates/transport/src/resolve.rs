@@ -46,7 +46,10 @@ pub fn resolve(target: &Target) -> Result<Resolved> {
             if !path.exists() {
                 bail!("{} does not exist", path.display());
             }
-            Ok(Resolved { mgmt: path, log: None })
+            Ok(Resolved {
+                mgmt: path,
+                log: None,
+            })
         }
         Target::Usb { port_path } => resolve_usb(port_path),
         Target::Can { .. } => bail!("can: transport is not implemented this cycle"),
@@ -75,7 +78,11 @@ fn resolve_usb(port_path: &str) -> Result<Resolved> {
             "no contract device at usb:{port_path}. Ports currently present: {}. \
              A board without our firmware contract shows up as exactly this error, \
              which is the correct legible symptom.",
-            if seen.is_empty() { "none".to_string() } else { seen.join(", ") }
+            if seen.is_empty() {
+                "none".to_string()
+            } else {
+                seen.join(", ")
+            }
         );
     }
 
@@ -93,7 +100,10 @@ fn resolve_usb(port_path: &str) -> Result<Resolved> {
         // Exactly one tty on the port and no interface strings: a single-channel
         // target, or a board whose descriptors we cannot read. Use it, because
         // refusing here would block bring-up over a plain UART.
-        None if matching.len() == 1 => Ok(Resolved { mgmt: matching[0].dev.clone(), log: None }),
+        None if matching.len() == 1 => Ok(Resolved {
+            mgmt: matching[0].dev.clone(),
+            log: None,
+        }),
         None => bail!(
             "found {} tty devices at usb:{port_path} but none advertising the \
              {IFACE_MGMT} interface descriptor; is the firmware contract present?",
@@ -117,7 +127,9 @@ fn from_udev_tree(port_path: &str) -> Result<Option<Resolved>> {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_string();
         let resolved = std::fs::canonicalize(entry.path()).unwrap_or_else(|_| entry.path());
-        let dev_name = resolved.file_name().map(|s| s.to_string_lossy().to_string());
+        let dev_name = resolved
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string());
         let Some(dev_name) = dev_name else { continue };
         if tty_port_path(&dev_name).as_deref() != Some(port_path) {
             continue;
@@ -194,15 +206,22 @@ mod tests {
     fn parses_transport_prefixes() {
         assert_eq!(
             Target::parse("usb:3-6").unwrap(),
-            Target::Usb { port_path: "3-6".into() }
+            Target::Usb {
+                port_path: "3-6".into()
+            }
         );
         assert_eq!(
             Target::parse("tty:ttyS3").unwrap(),
-            Target::Tty { device: "ttyS3".into() }
+            Target::Tty {
+                device: "ttyS3".into()
+            }
         );
         assert_eq!(
             Target::parse("can:vcan0/0x42").unwrap(),
-            Target::Can { iface: "vcan0".into(), node_id: "0x42".into() }
+            Target::Can {
+                iface: "vcan0".into(),
+                node_id: "0x42".into()
+            }
         );
     }
 
@@ -239,12 +258,18 @@ mod tests {
     #[test]
     fn a_missing_tty_is_a_clear_error() {
         let t = Target::parse("tty:/dev/definitely-not-here").unwrap();
-        assert!(resolve(&t).unwrap_err().to_string().contains("does not exist"));
+        assert!(resolve(&t)
+            .unwrap_err()
+            .to_string()
+            .contains("does not exist"));
     }
 
     #[test]
     fn can_targets_are_refused_with_a_reason() {
         let t = Target::parse("can:vcan0/0x42").unwrap();
-        assert!(resolve(&t).unwrap_err().to_string().contains("not implemented"));
+        assert!(resolve(&t)
+            .unwrap_err()
+            .to_string()
+            .contains("not implemented"));
     }
 }
