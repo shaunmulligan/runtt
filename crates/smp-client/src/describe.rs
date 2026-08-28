@@ -29,6 +29,12 @@ pub struct Describe {
     pub app_version: String,
     /// 2 for the normal management + log split, 1 for single-serial targets.
     pub channels: u32,
+    /// Whether the device implements the SMP image group, i.e. whether it can
+    /// receive an update at all. Absent on contract 1.0.0 firmware, which
+    /// predates the field -- treat that as "unknown", not "no".
+    #[serde(default)]
+    pub img: Option<bool>,
+
     /// Present only when the firmware opted into liveness reporting, so the host
     /// can distinguish "healthy" from "does not report health".
     #[serde(default)]

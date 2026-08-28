@@ -259,6 +259,21 @@ impl Deploy<'_> {
             );
         }
 
+        // Say so before attempting an upload that cannot work. Without this the
+        // first sign of trouble is MGMT_ERR_ENOTSUP from the image group, which
+        // names neither the cause nor the remedy.
+        if d.img == Some(false) {
+            bail!(
+                "{} is running a bring-up configuration: it reports contract {} with no \
+                 image management, so it can be identified and its logs read but it \
+                 cannot receive firmware. That happens when the board has no secondary \
+                 slot to stage into. Build for a target that has one -- for a Pico that \
+                 is rpi_pico/rp2040/mcuboot under sysbuild rather than plain rpi_pico.",
+                d.board,
+                d.contract
+            );
+        }
+
         println!(
             "mcu: device is {} running {} (contract {}, {} channel{})",
             d.board,

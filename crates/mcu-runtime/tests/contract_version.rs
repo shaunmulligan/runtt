@@ -86,6 +86,33 @@ fn the_runtime_accepts_the_documented_major() {
 }
 
 #[test]
+fn the_document_does_not_mention_a_stale_version() {
+    // The header is not the only place the version appears: it is also in the
+    // Kconfig table and the describe field description. Bumping only the header
+    // leaves those quietly wrong, which is worse than not stating them.
+    let doc = read("docs/WIRE_CONTRACT.md");
+    let current = documented_version();
+    let history_marker = "## 12. Version history";
+    let body = doc
+        .split(history_marker)
+        .next()
+        .expect("version history section");
+
+    for (i, line) in body.lines().enumerate() {
+        // Look for anything that looks like a semver in backticks or quotes.
+        for cand in ["1.0.0", "1.1.0", "1.2.0", "2.0.0"] {
+            if line.contains(cand) && cand != current {
+                panic!(
+                    "docs/WIRE_CONTRACT.md line {} mentions version {cand} but the \
+                     contract is {current}. Version history is exempt; the body is not.\n  {line}",
+                    i + 1
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn the_describe_group_is_the_per_user_base() {
     // 64 is MGMT_GROUP_ID_PERUSER. Below it the ids belong to Zephyr, so a
     // command there would be squatting on someone else's number.
