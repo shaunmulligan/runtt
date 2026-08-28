@@ -119,3 +119,10 @@ provided properly elsewhere:
 Relatedly, `delete` waits (bounded) for the proxy to actually exit after
 `SIGKILL` rather than returning as soon as the signal is delivered. Signalling is
 asynchronous; releasing the device is what `delete` is promising.
+
+And it kills the proxy whenever one is **alive**, not only when the container is
+recorded as `running`. A container that was created but never started still has a
+live proxy — blocked waiting for `start` — and that proxy holds the occupancy lock
+on its MCU. Gating the kill on the recorded status leaked one process, and one
+claimed device, per create-then-delete cycle. `--force` governs whether we refuse
+to delete a *running* container; it does not govern cleanup.

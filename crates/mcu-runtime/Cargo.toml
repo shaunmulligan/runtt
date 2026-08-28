@@ -23,5 +23,6 @@ smp-client = { path = "../smp-client" }
 transport = { path = "../transport" }
 
 [dev-dependencies]
+serde_json.workspace = true
 serialport.workspace = true
 smp-mock = { path = "../smp-mock" }

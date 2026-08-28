@@ -416,3 +416,40 @@ fn deploying_a_different_image_uploads_and_confirms_it() {
     );
     rig.cleanup();
 }
+
+#[test]
+fn deleting_a_never_started_container_does_not_leak_its_proxy() {
+    // A container created but never started still has a live proxy, blocked
+    // waiting for `start`, and that proxy holds the occupancy lock on its MCU.
+    // Deleting the container must reclaim it. Gating the kill on the recorded
+    // status leaked one process -- and one device -- per create/delete cycle.
+    let rig = rig("neverstarted", Fault::None, SIGNED_SMALL);
+    let _log = rig.create();
+
+    let pid: i32 = {
+        let state = rig.state();
+        let v: serde_json::Value = serde_json::from_str(&state).expect("state json");
+        v["pid"].as_i64().expect("state should carry a pid") as i32
+    };
+    assert!(
+        proc_alive(pid),
+        "the proxy should be running after create, before start"
+    );
+
+    rig.cleanup();
+
+    // Give the signal a moment even though delete waits; this asserts the
+    // outcome, not the timing.
+    for _ in 0..50 {
+        if !proc_alive(pid) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("proxy {pid} survived delete: the device would stay claimed forever");
+}
+
+/// Signal 0 probes for existence without delivering anything.
+fn proc_alive(pid: i32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}

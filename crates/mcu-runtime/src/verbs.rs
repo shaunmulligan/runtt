@@ -233,20 +233,26 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool) -> Result<()> {
         Err(e) => return Err(e),
     };
 
-    let running = *st.status() == ContainerState::Running
-        && st.pid().map(crate::proxy::is_alive).unwrap_or(false);
+    let alive = st.pid().map(crate::proxy::is_alive).unwrap_or(false);
+    let running = *st.status() == ContainerState::Running && alive;
 
     if running && !force {
         bail!("cannot delete running container {id} (use --force)");
     }
-    if running {
-        if let Some(pid) = st.pid() {
+
+    // Kill the proxy whenever it is alive, NOT only when the container is
+    // "running". A container that was created but never started still has a
+    // live proxy -- blocked waiting for start -- and it is holding the
+    // occupancy lock on its MCU. Gating this on the recorded status leaks that
+    // process, and with it the device, on a plain create-then-delete.
+    if let Some(pid) = st.pid() {
+        if alive {
             let _ = crate::proxy::signal(*pid, libc::SIGKILL);
             // Wait for it to actually go. `delete` must not return while the
-            // proxy still holds the serial port open exclusively: on a restart
-            // policy the engine immediately creates the replacement, which
-            // would then fail to open the device with EBUSY. Signalling is
-            // asynchronous; releasing the resource is what we are promising.
+            // proxy still holds the serial port open: on a restart policy the
+            // engine immediately creates the replacement, which would then fail
+            // to open the device. Signalling is asynchronous; releasing the
+            // device is what we are promising.
             crate::proxy::await_exit(*pid, std::time::Duration::from_secs(5));
         }
     }
