@@ -57,10 +57,25 @@ impl Deploy<'_> {
     pub fn run(&self) -> Result<ToolkitClient> {
         let image = std::fs::read(self.firmware)
             .with_context(|| format!("failed to read firmware {}", self.firmware.display()))?;
-        let digest = ToolkitClient::digest(&image);
+
+        // Two different hashes, and they are not interchangeable. The upload's
+        // `sha` field is over the file bytes (transfer integrity), but image
+        // IDENTITY -- what `image list` reports and what `set_state` expects --
+        // is the MCUboot digest over header and body only, from the image's TLV
+        // area. Using the file hash for set_state yields
+        // IMG_MGMT_ERR_HASH_NOT_FOUND.
+        let info = smp_client::mcuboot::parse(&image).with_context(|| {
+            format!(
+                "{} is not a valid MCUboot image. A firmware service must ship an                  imgtool-signed image, not a raw binary.",
+                self.firmware.display()
+            )
+        })?;
+        let digest = info.digest;
+
         tracing::info!(
             target = self.target,
             bytes = image.len(),
+            version = %info.version,
             digest = hex(&digest),
             "deploying firmware"
         );
@@ -114,6 +129,20 @@ impl Deploy<'_> {
         c.flash(&image, Some(&mut progress))
             .context("firmware upload failed")?;
 
+        // Cross-check what actually landed against what we sent. This catches a
+        // corrupted upload before we ever mark it bootable, and it confirms the
+        // device agrees with our own TLV parse.
+        let staged = c
+            .image_list()?
+            .into_iter()
+            .find(|s| !s.active && s.hash.as_deref() == Some(digest.as_slice()));
+        if staged.is_none() {
+            bail!(
+                "after upload the device does not report an inactive image with                  digest {}. The upload did not land where expected.",
+                hex(&digest)
+            );
+        }
+
         // Mark TEST, never confirm. This is the invariant.
         c.set_state(&digest, false)
             .context("failed to mark the uploaded image for test")?;
@@ -128,10 +157,29 @@ impl Deploy<'_> {
             .context("device did not come back after reset")?;
 
         let slots = c.image_list()?;
-        let active = slots
-            .iter()
-            .find(|s| s.active)
-            .context("device reports no active image after reset")?;
+        let active = match slots.iter().find(|s| s.active) {
+            Some(a) => a,
+            None => {
+                // Two very different situations, with opposite remedies.
+                let staged_pending = slots
+                    .iter()
+                    .any(|s| s.hash.as_deref() == Some(digest.as_slice()) && s.pending);
+                if staged_pending {
+                    bail!(
+                        "the image is staged and marked pending, but nothing swapped it in: \
+                         no image is active after the reset. On a target with no bootloader \
+                         this is expected and swap/confirm are unreachable by construction \
+                         (native_sim cannot chain-load MCUboot). On real hardware it means \
+                         MCUboot did not run -- check it is actually flashed, and that its \
+                         swap mode matches the mode the image was built for."
+                    );
+                }
+                bail!(
+                    "no image is active after the reset, and our staged image is not \
+                     pending either -- the upload appears to have been lost."
+                );
+            }
+        };
         if active.hash.as_deref() != Some(digest.as_slice()) {
             bail!(
                 "after reset the device is running digest {} but we deployed {}. \

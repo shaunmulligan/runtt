@@ -67,18 +67,37 @@ impl<T: Read + Write> Server<T> {
         &self.dev
     }
 
-    /// Serve until the pipe closes or we are told to go silent.
+    /// Serve indefinitely.
+    ///
+    /// **A host disconnecting is not a reason to stop.** A real device stays
+    /// powered and available when the host closes the port, and our runtime
+    /// deliberately disconnects and reconnects around a reset. A server that
+    /// exited on EOF would leave nothing listening for the reconnect, which
+    /// presents as an intermittent hang rather than a clear failure.
     pub fn serve(&mut self) -> Result<()> {
         let mut line = Vec::new();
         let mut byte = [0u8; 1];
         loop {
             match self.io.read(&mut byte) {
-                Ok(0) => return Ok(()), // peer closed
+                Ok(0) => {
+                    // Host went away. Drop any half-assembled packet so the
+                    // next client starts clean, and keep waiting.
+                    line.clear();
+                    self.decoder = Decoder::new();
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
                 Ok(_) => {}
                 // A timeout on the device side just means the client is idle.
                 Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e.into()),
+                // EIO on a pty master means the slave side closed: same as EOF.
+                Err(_) => {
+                    line.clear();
+                    self.decoder = Decoder::new();
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
             }
             if byte[0] != b'\n' {
                 line.push(byte[0]);

@@ -22,4 +22,9 @@ serialport.workspace = true
 sha2.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+smp-client = { path = "../smp-client" }
 transport = { path = "../transport" }
+
+[dev-dependencies]
+serialport.workspace = true
+tracing-subscriber.workspace = true

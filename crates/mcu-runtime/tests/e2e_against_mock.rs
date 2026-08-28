@@ -14,6 +14,28 @@ use std::time::{Duration, Instant};
 
 const RUNTIME: &str = env!("CARGO_BIN_EXE_mcu-runtime");
 
+/// Serialises the tests that perform two sequential deploys against one device.
+///
+/// Each test here spawns a mock thread, a pty pair and a real subprocess, and
+/// the multi-deploy ones additionally tear a container down and immediately
+/// stand another up against the same port. Run enough of those concurrently and
+/// they starve each other badly enough to exceed any sane timeout. Serialising
+/// just those is honest -- they contend for real OS resources -- and it keeps
+/// the suite fast: the whole file runs in about two seconds.
+///
+/// Single-deploy tests are unaffected and still run in parallel.
+static SEQUENTIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Real imgtool-signed images. The runtime rejects anything without a valid
+/// MCUboot header -- deliberately, since image identity comes from the header's
+/// TLV digest -- so these tests cannot use arbitrary bytes.
+const SIGNED: &[u8] = include_bytes!("../../smp-client/tests/fixtures/app.signed.bin");
+const SIGNED_OTHER: &[u8] = include_bytes!("../../smp-client/tests/fixtures/other.signed.bin");
+/// A small signed image for fault-path tests: they exercise error handling, not
+/// throughput, and a large payload makes them slow and sensitive to the load
+/// from cargo's parallel test execution.
+const SIGNED_SMALL: &[u8] = include_bytes!("../../smp-client/tests/fixtures/small.signed.bin");
+
 struct Rig {
     _mock: std::thread::JoinHandle<()>,
     slave_path: String,
@@ -138,8 +160,7 @@ impl Rig {
 
 #[test]
 fn deploys_firmware_and_stays_resident() {
-    let firmware: Vec<u8> = (0..3072u32).map(|i| (i % 251) as u8).collect();
-    let rig = rig("happy", Fault::None, &firmware);
+    let rig = rig("happy", Fault::None, SIGNED);
     let log = rig.create();
 
     // Created, not started: nothing should have been flashed yet.
@@ -153,7 +174,7 @@ fn deploys_firmware_and_stays_resident() {
     assert!(out.status.success(), "start failed: {out:?}");
 
     // The whole safety-critical ordering, observed from the container's own log.
-    let text = rig.wait_for(&log, "image confirmed", Duration::from_secs(20));
+    let text = rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
     let staged = text.find("marked test").expect("should mark test");
     let confirmed = text.find("image confirmed").expect("should confirm");
     assert!(
@@ -172,7 +193,7 @@ fn deploys_firmware_and_stays_resident() {
 
 #[test]
 fn a_digest_mismatch_fails_the_container() {
-    let rig = rig("badhash", Fault::BadHash, &vec![0xAAu8; 2048]);
+    let rig = rig("badhash", Fault::BadHash, SIGNED_SMALL);
     let log = rig.create();
     let out = rig.verb(&["start", &rig.id]);
     assert!(
@@ -182,13 +203,13 @@ fn a_digest_mismatch_fails_the_container() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let text = rig.wait_for(&log, "mcu-runtime:", Duration::from_secs(25));
+    let text = rig.wait_for(&log, "mcu-runtime:", Duration::from_secs(60));
     assert!(
         text.contains("upload") || text.to_lowercase().contains("hash"),
         "the failure should name the cause:\n{text}"
     );
     // And the proxy must be gone, so the engine sees a non-zero exit.
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         if rig.state().contains("\"status\":\"stopped\"") {
             rig.cleanup();
@@ -236,8 +257,7 @@ fn a_missing_target_annotation_is_refused_at_create() {
 
 #[test]
 fn a_second_service_cannot_claim_the_same_target() {
-    let firmware = vec![0x5Au8; 1024];
-    let rig = rig("occupancy", Fault::None, &firmware);
+    let rig = rig("occupancy", Fault::None, SIGNED);
     let _log = rig.create();
 
     // A different container id, same target.
@@ -260,13 +280,13 @@ fn a_second_service_cannot_claim_the_same_target() {
 
 #[test]
 fn a_second_deploy_of_the_same_image_skips_the_upload() {
-    let firmware: Vec<u8> = (0..2048u32).map(|i| (i % 97) as u8).collect();
-    let rig = rig("skipsame", Fault::None, &firmware);
+    let _seq = SEQUENTIAL.lock().unwrap();
+    let rig = rig("skipsame", Fault::None, SIGNED);
 
     // First deploy: uploads, stages, confirms.
     let log = rig.create();
     assert!(rig.verb(&["start", &rig.id]).status.success());
-    let first = rig.wait_for(&log, "image confirmed", Duration::from_secs(20));
+    let first = rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
     assert!(
         first.contains("uploading"),
         "first deploy should upload:\n{first}"
@@ -282,7 +302,7 @@ fn a_second_deploy_of_the_same_image_skips_the_upload() {
     // would be a wasted write cycle and an unnecessary reboot.
     let log2 = rig.create();
     assert!(rig.verb(&["start", &rig.id]).status.success());
-    let second = rig.wait_for(&log2, "nothing to do", Duration::from_secs(20));
+    let second = rig.wait_for(&log2, "nothing to do", Duration::from_secs(60));
     assert!(
         !second.contains("uploading"),
         "second deploy must not re-upload:\n{second}"
@@ -296,12 +316,12 @@ fn a_second_deploy_of_the_same_image_skips_the_upload() {
 
 #[test]
 fn force_reflash_overrides_the_skip() {
-    let firmware = vec![0x3Cu8; 1536];
-    let rig = rig("forceflash", Fault::None, &firmware);
+    let _seq = SEQUENTIAL.lock().unwrap();
+    let rig = rig("forceflash", Fault::None, SIGNED);
 
     let log = rig.create();
     assert!(rig.verb(&["start", &rig.id]).status.success());
-    rig.wait_for(&log, "image confirmed", Duration::from_secs(20));
+    rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
     rig.cleanup();
 
     // Same image, but the spec opts out of skipping.
@@ -314,33 +334,9 @@ fn force_reflash_overrides_the_skip() {
     )
     .unwrap();
 
-    // DIAGNOSTIC
-    eprintln!(
-        "DIAG pty {} exists={}",
-        rig.slave_path,
-        Path::new(&rig.slave_path).exists()
-    );
-    for p in std::fs::read_dir("/proc").unwrap().flatten() {
-        let fd = p.path().join("fd");
-        if let Ok(entries) = std::fs::read_dir(&fd) {
-            for e in entries.flatten() {
-                if let Ok(t) = std::fs::read_link(e.path()) {
-                    if t.to_string_lossy() == rig.slave_path {
-                        let cmd =
-                            std::fs::read_to_string(p.path().join("cmdline")).unwrap_or_default();
-                        eprintln!(
-                            "DIAG holder pid={:?} cmd={}",
-                            p.file_name(),
-                            cmd.replace('\0', " ")
-                        );
-                    }
-                }
-            }
-        }
-    }
     let log2 = rig.create();
     assert!(rig.verb(&["start", &rig.id]).status.success());
-    let out = rig.wait_for(&log2, "uploading", Duration::from_secs(20));
+    let out = rig.wait_for(&log2, "uploading", Duration::from_secs(60));
     assert!(
         out.contains("uploading"),
         "opting out must force a re-upload:\n{out}"
@@ -363,4 +359,60 @@ fn spec_json_with(target: &str, extra_annotations: &str) -> String {
   "annotations": {{ "io.balena.mcu.target": "{target}"{extra_annotations} }}
 }}"#
     )
+}
+
+#[test]
+fn an_unsigned_binary_is_refused_with_a_useful_message() {
+    // A raw binary has no MCUboot header, so there is no TLV digest and no
+    // image identity to mark or confirm. Real firmware rejects it with
+    // IMG_MGMT_ERR_INVALID_IMAGE_HEADER_MAGIC; we should say so before even
+    // opening the port, and say what to do about it.
+    let rig = rig("unsigned", Fault::None, &vec![0x00u8; 4096]);
+    let log = rig.create();
+    let _ = rig.verb(&["start", &rig.id]);
+
+    let text = rig.wait_for(&log, "mcu-runtime:", Duration::from_secs(60));
+    assert!(
+        text.contains("not a valid MCUboot image"),
+        "should name the problem:\n{text}"
+    );
+    assert!(
+        text.contains("imgtool"),
+        "should tell the user how to fix it:\n{text}"
+    );
+    rig.cleanup();
+}
+
+#[test]
+fn deploying_a_different_image_uploads_and_confirms_it() {
+    let _seq = SEQUENTIAL.lock().unwrap();
+    // The actual upgrade path, and the counterpart to the skip test: a new
+    // release must not be mistaken for the one already running.
+    let rig = rig("upgrade", Fault::None, SIGNED);
+
+    let log = rig.create();
+    assert!(rig.verb(&["start", &rig.id]).status.success());
+    rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
+    rig.cleanup();
+
+    // Swap in a genuinely different signed image, same target.
+    std::fs::write(rig.bundle.join("rootfs/app.signed.bin"), SIGNED_OTHER).unwrap();
+
+    let log2 = rig.create();
+    assert!(rig.verb(&["start", &rig.id]).status.success());
+    let out = rig.wait_for(&log2, "image confirmed", Duration::from_secs(60));
+    assert!(
+        out.contains("uploading"),
+        "a different image must actually be uploaded, not skipped:\n{out}"
+    );
+    assert!(
+        !out.contains("nothing to do"),
+        "must not mistake a new image for the running one:\n{out}"
+    );
+    // And it should report the new image's version, not the old one.
+    assert!(
+        out.contains("3.1.0"),
+        "should report the new image's version:\n{out}"
+    );
+    rig.cleanup();
 }

@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 
+pub mod mcuboot;
 pub mod toolkit;
 pub use toolkit::ToolkitClient;
 

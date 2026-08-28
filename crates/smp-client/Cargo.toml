@@ -14,5 +14,4 @@ transport = { path = "../transport" }
 [dev-dependencies]
 base64.workspace = true
 serialport.workspace = true
-smp-mock = { path = "../smp-mock" }
 tracing-subscriber.workspace = true

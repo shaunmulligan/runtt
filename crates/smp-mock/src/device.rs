@@ -32,12 +32,29 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn from_bytes(data: &[u8], version: &str) -> Self {
-        let mut h = Sha256::new();
-        h.update(data);
+    /// Build an image record the way a real device would.
+    ///
+    /// The reported hash is the **MCUboot image digest** from the image's TLV
+    /// area, not the SHA-256 of the file bytes. That distinction is not
+    /// cosmetic: it is the identity `set_state` matches on, and getting it wrong
+    /// produces IMG_MGMT_ERR_HASH_NOT_FOUND on real firmware. The mock reports
+    /// the same thing so that a client which works here works there.
+    ///
+    /// Falls back to hashing the bytes when the payload is not a valid MCUboot
+    /// image, so tests that only care about transport behaviour can still use
+    /// arbitrary blobs.
+    pub fn from_bytes(data: &[u8], fallback_version: &str) -> Self {
+        let (hash, version) = match smp_client::mcuboot::parse(data) {
+            Ok(info) => (info.digest.to_vec(), info.version),
+            Err(_) => {
+                let mut h = Sha256::new();
+                h.update(data);
+                (h.finalize().to_vec(), fallback_version.to_string())
+            }
+        };
         Self {
-            version: version.to_string(),
-            hash: h.finalize().to_vec(),
+            version,
+            hash,
             bytes: data.len(),
             bootable: true,
             pending: false,

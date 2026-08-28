@@ -1,12 +1,15 @@
 /target
 **/*.rs.bk
 *.pdb
-# Zephyr / west workspace
-/zephyr/.west/
-/zephyr/zephyr/
-/zephyr/modules/
-/zephyr/bootloader/
-/zephyr/build/
+# west workspace: the manifest repo is firmware/, and west clones its
+# dependencies as siblings at the repo root.
+/.west/
+/zephyr/
+/modules/
+/bootloader/
+/tools/
+/build/
+/firmware/**/build/
 # local artefacts
 *.bin
 *.hex
