@@ -24,7 +24,7 @@ fn rig(fault: Fault) -> (ToolkitClient, std::thread::JoinHandle<()>) {
 
 #[test]
 fn describe_reports_the_contract() {
-    let (mut c, _srv) = rig(Fault::None);
+    let (c, _srv) = rig(Fault::None);
     let d = c.describe().expect("describe should succeed");
 
     assert_eq!(d.contract, "1.0.0", "contract version");

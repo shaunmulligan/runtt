@@ -479,7 +479,7 @@ fn the_device_is_identified_before_anything_is_written() {
     let text = rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
     let identified = text
         .find("mcu: device is")
-        .expect(&format!("should report the device's identity:\n{text}"));
+        .unwrap_or_else(|| panic!("should report the device's identity:\n{text}"));
     let uploaded = text.find("uploading").expect("should upload");
     assert!(
         identified < uploaded,
