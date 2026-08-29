@@ -273,6 +273,42 @@ Until this is understood, **a hardware gate cannot run its happy path on
 RP2040**, which is a good argument for keeping the gate a bench script that a
 human starts rather than anything automated.
 
+### The swap never happens, and where to pick it up
+
+Narrowed with SWD and the ability to stage an image without resetting
+(`STAGE_UPLOAD=... cargo run -p smp-client --example stage`). With slot 1 staged
+and `pending` set, a reset produces one of two outcomes and **never a swap**:
+
+* **Lockup.** `xpsr` exception 3 (HardFault) with `SP = 0xffffffe0` -- SP was
+  zero when the fault was taken, which is what chain-loading an image with a
+  blank vector table looks like. `VTOR = 0x10000100` is MCUboot's own vector
+  table, so the reset happens and the bootloader runs.
+* **Boots slot 0 unchanged** and silently clears the pending flag.
+
+The USB endpoint state described above is **downstream of this**, not a separate
+bug: `BUFF_STATUS` shows an unserviced pending bit, which is what a dead core
+looks like from the controller's side. The host keeps seeing the device
+throughout because `SYSRESETREQ` resets the processor but not the RP2040 USB
+block, so the pullup never drops and no disconnect is ever signalled.
+
+**The lead worth following.** Slot 0's trailer carries valid MCUboot magic and
+`copy_done = 0x01`, but `image_ok = 0xff` -- unset. The bootloader therefore
+regards the *running* image as unconfirmed, while `img_mgmt` reports
+`confirmed=true`, and the provisioning image was written with a confirmed
+trailer. A primary image MCUboot thinks is unconfirmed would have it attempting
+a revert on every boot with nothing valid to revert to, which matches the
+alternating behaviour above.
+
+**Do this in MCUboot's simulator, not on hardware.** `sim/` compiles the real
+`bootutil` sources over a NOR-flash model with injectable failures, and the CI
+job already runs it. A trailer-semantics bug is exactly what it exists to
+reproduce, and doing it there costs no bench time and no board states.
+
+Two things that did not pan out, recorded so they are not retried: MCUboot's
+console is on `uart0` and produced nothing over the probe's UART bridge in
+either pin orientation, and pyOCD breakpoints did not fire on this target
+(`boot_go` never trapped despite the bootloader demonstrably running).
+
 ## Staging
 
 **Minimum viable.** `scripts/hardware-e2e.sh`, run by hand, same four-line
