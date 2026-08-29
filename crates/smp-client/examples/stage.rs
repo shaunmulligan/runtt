@@ -24,8 +24,20 @@ fn main() {
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex digest"))
         .collect();
 
-    let ch = SerialChannel::open(&dev, 115_200, Duration::from_secs(3)).expect("open");
-    let mut c = ToolkitClient::new(ch, Duration::from_secs(3)).expect("client");
+    let ch = SerialChannel::open(&dev, 115_200, Duration::from_secs(30)).expect("open");
+    let mut c = ToolkitClient::new(ch, Duration::from_secs(30)).expect("client");
+    c.tune_frame_size();
+
+    // Optional: upload an image first, so the whole stage can be driven without
+    // the runtime and, crucially, without it also sending a reset. That lets
+    // the reset be issued separately -- over SWD -- so a debugger can watch
+    // what the bootloader does with the staged image.
+    if let Ok(path) = std::env::var("STAGE_UPLOAD") {
+        let image = std::fs::read(&path).expect("read image");
+        println!("  uploading {} bytes from {path}", image.len());
+        c.flash(&image, None).expect("upload failed");
+        println!("  upload complete");
+    }
 
     let show = |c: &mut ToolkitClient, when: &str| match c.image_list() {
         Ok(slots) => {
