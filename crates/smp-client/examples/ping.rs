@@ -27,12 +27,18 @@ fn main() {
         Ok(slots) if slots.is_empty() => println!("  image list -> no images"),
         Ok(slots) => {
             for s in slots {
+                // bootable and permanent are printed because they are the
+                // fields that distinguish "staged and waiting" from "MCUboot
+                // tried this and rejected it" -- the exact question a failed
+                // swap raises, and one this tool could not previously answer.
                 println!(
-                    "  slot {} active={} confirmed={} pending={} v{} hash={}",
+                    "  slot {} active={} confirmed={} pending={} bootable={} permanent={} v{} hash={}",
                     s.slot,
                     s.active,
                     s.confirmed,
                     s.pending,
+                    s.bootable,
+                    s.permanent,
                     s.version,
                     s.hash
                         .map(|h| h.iter().map(|b| format!("{b:02x}")).collect::<String>())
