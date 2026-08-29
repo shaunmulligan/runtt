@@ -73,9 +73,10 @@ gate exists to prove becomes unfalsifiable while the log reads reassuringly.
 **Re-sign the same known-bootable binary with a rolling `--version` on every
 run.** Use the imgtool block the sim gates already have
 (`scripts/native-sim-e2e.sh:34-44`), changing only `--slot-size` to `0xd0000`
-for RP2040 — *not* native_sim's `0x69000`. (Read the value off `slot0_partition`
-in the generated `app/zephyr/zephyr.dts` of a build tree; `scripts/build-pico.sh`
-produces one in `build-pico-mcuboot/`.)
+for RP2040 — *not* native_sim's `0x69000`, and *not* the Feather's `0x76000`.
+(Read the value off `slot0_partition` in the generated `app/zephyr/zephyr.dts` of
+a build tree; `scripts/build-pico.sh` and `scripts/build-feather.sh` each produce
+one.) A gate covering both boards needs the slot size per target, not a constant.
 
 The version lives in the MCUboot header, so the digest is new every run while
 the code is identical and already proven to boot. That single trick:

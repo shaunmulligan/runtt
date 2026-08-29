@@ -43,6 +43,11 @@ Working:
   same-digest no-op redeploy.
 - A fault-injecting SMP mock with seven failure modes.
 
+**In progress — Adafruit Feather nRF52840** (branch `nrf52840-bringup`). The
+board support, build and provisioning scripts are written and both example apps
+build clean against `adafruit_feather_nrf52840/nrf52840` with MCUboot. **None of
+it has run on hardware yet**, so treat it as compiled, not working.
+
 Not built:
 
 - **A hardware CI gate.** CI is simulated-only, deliberately; the design and its
@@ -78,6 +83,9 @@ Not built:
 | `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: MCUboot hangs in find_last_idx on RP2040 |
 | `udev/90-balena-mcu.rules` | device access and the contract-keyed device tree |
 | `scripts/setup-prereqs.sh` | one-time host setup for hardware work (`--check` to just verify) |
+| `scripts/build-feather.sh` | build for the Feather nRF52840: bringup, mcuboot, provision |
+| `scripts/backup-nrf52840.sh` | back up flash and UICR before the first destructive flash |
+| `scripts/flash-feather.sh` | provision a Feather over SWD; refuses to run without a backup |
 
 ## Trying it
 
