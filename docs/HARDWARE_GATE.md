@@ -226,21 +226,48 @@ flash driver's write path, which would have killed USB too.
 * **Not the reset command being rejected.** `reset()` returns success; the
   failure surfaces later, in `reconnect()`.
 
-### Where to look next
+### Where it actually is, read over SWD
 
-The next instrument is **SWD, not another guess**. Four boards' worth of replugs
-went into narrowing this by inference; attaching the Debug Probe and reading
-where the core actually sits would settle in one go what the host cannot see.
+The Debug Probe's firmware had to be updated first (`bcdDevice 1.01` -> `2.31`).
+pyOCD *listing* the probe on the old firmware is not evidence that SWD works --
+it only exercises USB enumeration, and every transfer hung until the update.
 
-Two starting points worth checking:
+With the probe working, on a board left in the wedged state:
 
-* RP2040's reset is the generic Cortex-M `NVIC_SystemReset` — there is no
-  SoC-specific `sys_arch_reboot` under `zephyr/soc/raspberrypi`. A core-only
-  reset does **not** reset the external QSPI flash chip, so any mode the flash
-  was left in by `flash_range_program` survives into the bootrom's first reads.
-* `CONFIG_MCUMGR_GRP_OS_RESET_MS` is 250 ms by default. If the reboot work is
-  racing the flash driver rather than being blocked by it, that value is the
-  cheapest thing to vary.
+* **The core is in Zephyr's idle thread.** `pc` resolves to `__ISB`
+  (`cmsis_gcc.h:175`) called from `idle` (`kernel/idle.c:30`), and `xpsr`'s
+  exception field is 0, so it is in thread mode rather than an ISR. Nothing has
+  faulted; there is simply no thread ready to run.
+* **The kernel clock is fine.** `TIMERAWL` advances while the core runs. (Read
+  it *running*: RP2040's `DBGPAUSE` freezes the timer while halted for debug,
+  which looks exactly like a stopped clock if you only read it halted.)
+* **The USB bus is live.** `SIE_STATUS = 0x40050005` -> `CONNECTED`,
+  `VBUS_DETECTED`; raw `INTR` has `DEV_SOF` set, so SOF packets are arriving.
+  `INTE` enables `BUFF_STATUS` and `SETUP_REQ`, and the NVIC has the USB IRQ
+  enabled. `INTS` is 0 -- nothing pending.
+* **One endpoint is wedged.** Buffer control for the management channel's bulk
+  OUT reads `0x0000a007`: `FULL=1`, `LENGTH=7`, `AVAILABLE=0`. Seven received
+  bytes that software never consumed, on an endpoint that will therefore never
+  accept another packet. Every other OUT endpoint reads `AVAILABLE=1` and is
+  correctly armed.
+
+That is the whole failure. The host's SMP writes are NAK'd forever, no
+`BUFF_STATUS` interrupt is raised, and the core sleeps -- which is why the board
+looks dead while being entirely healthy. It also explains the misleading part:
+control transfers still work (`SETUP_REQ` is armed), so `lsusb` reports a
+present, healthy device.
+
+**Do not read this as a diagnosis of the cause.** It is where the damage shows.
+Why that one completion is lost, and why only after a flash write followed by a
+reset, is still open. The obvious candidate is the long interrupt-off window in
+`flash_rpi_pico.c` -- `irq_lock()` is held across each `flash_range_program`
+call -- interacting with the RP2040's double-buffered endpoints, but that has
+not been demonstrated.
+
+Worth noting three hypotheses were wrong before this: a system workqueue stack
+overflow, the idle application specifically, and a stopped kernel clock. Each
+fit every symptom visible from the host. The register read settled in one go
+what five replugs of black-box inference could not.
 
 Until this is understood, **a hardware gate cannot run its happy path on
 RP2040**, which is a good argument for keeping the gate a bench script that a
