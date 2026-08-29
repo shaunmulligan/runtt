@@ -175,6 +175,77 @@ so the runtime's own occupancy lock actually excludes a concurrent run, a real
 teardown function in the trap that polls the pid until it is gone, and a
 precondition that `pgrep`s for a resident proxy and fails loudly.
 
+## Open bug: a flash write followed by `os reset` wedges an RP2040
+
+Found while trying to run the gate's own happy path by hand, 2026-08-29. **This
+is unresolved**, and it blocks every hardware deploy on the Pico.
+
+### What is established
+
+Isolated by bisecting the deploy sequence on a freshly provisioned board, each
+step run on its own:
+
+| Sequence | Result |
+|---|---|
+| `os reset` alone | **reboots cleanly** — USB re-enumerates, board returns healthy |
+| `set_state(test)` alone | **fine** — `pending=true` reads straight back, board stays responsive |
+| `set_state` → `os reset` | **wedges** |
+| upload → `set_state` → `os reset` | **wedges** |
+
+So neither operation is faulty on its own. It is **a flash write followed by a
+reset**, and it reproduces every time.
+
+### What the wedged state looks like
+
+The confusing part, and worth knowing before you chase it:
+
+* The device **does not re-enumerate** — same USB device number throughout, so
+  the reboot never happened.
+* USB **control transfers keep working**. `lsusb -v` reads `iProduct` and
+  `bcdDevice` live from the device, so it looks present and healthy.
+* Both CDC channels are dead: no SMP, no log output.
+* MCUboot never ran, so nothing swaps, and `pending` is clear on the next power
+  cycle — which makes it look from the host like `set_state` silently failed,
+  when in fact it succeeded and the reboot never came.
+* Recovery is a **physical replug**. There is no software route back.
+
+Interrupts are evidently still being serviced, since USB answers; it is the
+threads that have stopped. That rules out a simple `irq_lock()` leak in the
+flash driver's write path, which would have killed USB too.
+
+### What has been ruled out
+
+* **Not the log demux, and not anything in this cycle's work.** It reproduces on
+  the two-channel path, where `demux_logs` is false and the code is byte-for-byte
+  what it was before.
+* **Not a system workqueue stack overflow.** That hypothesis fit every symptom —
+  CDC-ACM work and MCUmgr's reset handler share the system workqueue, USB
+  interrupts run on their own stack, and only `balena-mcu-idle` hit it because
+  `firmware/app/prj.conf` happens to raise the stack to 2560. Raising it in the
+  module changed nothing. The fit was a coincidence.
+* **Not the reset command being rejected.** `reset()` returns success; the
+  failure surfaces later, in `reconnect()`.
+
+### Where to look next
+
+The next instrument is **SWD, not another guess**. Four boards' worth of replugs
+went into narrowing this by inference; attaching the Debug Probe and reading
+where the core actually sits would settle in one go what the host cannot see.
+
+Two starting points worth checking:
+
+* RP2040's reset is the generic Cortex-M `NVIC_SystemReset` — there is no
+  SoC-specific `sys_arch_reboot` under `zephyr/soc/raspberrypi`. A core-only
+  reset does **not** reset the external QSPI flash chip, so any mode the flash
+  was left in by `flash_range_program` survives into the bootrom's first reads.
+* `CONFIG_MCUMGR_GRP_OS_RESET_MS` is 250 ms by default. If the reboot work is
+  racing the flash driver rather than being blocked by it, that value is the
+  cheapest thing to vary.
+
+Until this is understood, **a hardware gate cannot run its happy path on
+RP2040**, which is a good argument for keeping the gate a bench script that a
+human starts rather than anything automated.
+
 ## Staging
 
 **Minimum viable.** `scripts/hardware-e2e.sh`, run by hand, same four-line
