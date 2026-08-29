@@ -210,10 +210,37 @@ nothing. Re-sign with a new version each time:
 ```bash
 python3 bootloader/mcuboot/scripts/imgtool.py sign \
   --key bootloader/mcuboot/root-rsa-2048.pem \
-  --header-size 0x200 --pad-header --align 4 \
+  --header-size 0x200 --align 4 \
   --version 0.4.0 --slot-size 0xd0000 \
   build-pico-mcuboot/app/zephyr/zephyr.bin /tmp/v040.signed.bin
 ```
+
+> ### ⚠️ No `--pad-header` for a hardware image
+>
+> An application built to run under MCUboot sets `CONFIG_ROM_START_OFFSET=0x200`
+> and therefore **already reserves** the header space -- its `zephyr.bin` begins
+> with 0x200 zero bytes. `--pad-header` tells imgtool to prepend *another* one.
+>
+> The result passes `imgtool verify` and looks perfectly healthy: the header
+> still declares `hdr_size=0x200`, while the real image now starts at 0x400.
+> MCUboot dutifully jumps to `image + 0x200`, lands on the padding, loads
+> `SP = 0` and `PC = 0`, and the core ends in an unrecoverable lockup that
+> looks exactly like a bootloader bug.
+>
+> Check before deploying anything you signed by hand -- the word at `hdr_size`
+> should be a RAM address (`0x2xxxxxxx`), not zero:
+>
+> ```bash
+> python3 -c "
+> import struct,pathlib,sys
+> d=pathlib.Path(sys.argv[1]).read_bytes()
+> h=struct.unpack('<H',d[8:10])[0]; v=struct.unpack('<I',d[h:h+4])[0]
+> print(f'hdr={h:#x} sp={v:#010x}', 'OK' if v>>24==0x20 else 'MALFORMED')" /tmp/v040.signed.bin
+> ```
+>
+> `--pad-header` **is** correct for native_sim, where `ROM_START_OFFSET=0` and
+> nothing reserves the space. That is why the sim gates use it and hardware
+> must not.
 
 `--slot-size 0xd0000` is the RP2040 partition size, **not** native_sim's
 `0x69000`. See `docs/HARDWARE_GATE.md` for why this matters and what else bites.

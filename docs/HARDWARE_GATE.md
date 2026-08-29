@@ -175,139 +175,45 @@ so the runtime's own occupancy lock actually excludes a concurrent run, a real
 teardown function in the trap that polls the pid until it is gone, and a
 precondition that `pgrep`s for a resident proxy and fails loudly.
 
-## Open bug: a flash write followed by `os reset` wedges an RP2040
+## Resolved: the RP2040 "swap bug" was a malformed test image
 
-Found while trying to run the gate's own happy path by hand, 2026-08-29. **This
-is unresolved**, and it blocks every hardware deploy on the Pico.
+Kept as a record because it consumed a day and produced five wrong hypotheses,
+all of which fit the evidence.
 
-### What is established
+**The symptom.** A staged image plus a reset never swapped. The board either
+locked up (`xpsr` exception 3, `SP = 0xffffffe0`, i.e. SP was zero) or booted
+the old image with the pending flag silently cleared. It looked exactly like a
+bootloader defect, and the fact that RP2040 MCUboot swap had no public evidence
+of ever working made that story easy to believe.
 
-Isolated by bisecting the deploy sequence on a freshly provisioned board, each
-step run on its own:
+**The cause.** The hand-signed test image was malformed. An application built to
+run under MCUboot sets `CONFIG_ROM_START_OFFSET=0x200` and already reserves its
+header space, so signing it with `imgtool --pad-header` prepends a *second*
+0x200 header. The image then declares `hdr_size=0x200` while its vector table
+sits at 0x400. MCUboot jumps to `image + 0x200`, finds the padding, loads
+`SP = 0` and `PC = 0`, and locks up. `imgtool verify` reports the image as
+perfectly valid, because by its own accounting it is.
 
-| Sequence | Result |
-|---|---|
-| `os reset` alone | **reboots cleanly** — USB re-enumerates, board returns healthy |
-| `set_state(test)` alone | **fine** — `pending=true` reads straight back, board stays responsive |
-| `set_state` → `os reset` | **wedges** |
-| upload → `set_state` → `os reset` | **wedges** |
+**MCUboot swap on RP2040 works.** With a correctly signed image the full cycle
+completes: upload, mark test, reset, swap, confirm, new firmware boots and its
+logs reach container stdio. Verified end to end, digest matched independently.
 
-So neither operation is faulty on its own. It is **a flash write followed by a
-reset**, and it reproduces every time.
+### What this cost, and the lesson
 
-### What the wedged state looks like
+The wrong turns, in order: a system workqueue stack overflow; the idle
+application specifically; an undrained log channel starving the workqueue;
+`hw-flow-control` on both CDC channels (which broke enumeration outright and
+cost a flash cycle); and a stopped SysTick. Each fit every symptom then visible.
 
-The confusing part, and worth knowing before you chase it:
+Two things would have caught it far sooner. **Validate your own test artefacts
+before suspecting the platform** -- the malformed image was created in the first
+ten minutes and never questioned, because `imgtool verify` passed. And **read
+flash only at a `reset halt`**: reads taken while the core is locked up or
+inside a bootrom flash routine run with XIP disabled and return garbage, which
+produced one confidently wrong conclusion about corrupted flash.
 
-* The device **does not re-enumerate** — same USB device number throughout, so
-  the reboot never happened.
-* USB **control transfers keep working**. `lsusb -v` reads `iProduct` and
-  `bcdDevice` live from the device, so it looks present and healthy.
-* Both CDC channels are dead: no SMP, no log output.
-* MCUboot never ran, so nothing swaps, and `pending` is clear on the next power
-  cycle — which makes it look from the host like `set_state` silently failed,
-  when in fact it succeeded and the reboot never came.
-* Recovery is a **physical replug**. There is no software route back.
-
-Interrupts are evidently still being serviced, since USB answers; it is the
-threads that have stopped. That rules out a simple `irq_lock()` leak in the
-flash driver's write path, which would have killed USB too.
-
-### What has been ruled out
-
-* **Not the log demux, and not anything in this cycle's work.** It reproduces on
-  the two-channel path, where `demux_logs` is false and the code is byte-for-byte
-  what it was before.
-* **Not a system workqueue stack overflow.** That hypothesis fit every symptom —
-  CDC-ACM work and MCUmgr's reset handler share the system workqueue, USB
-  interrupts run on their own stack, and only `balena-mcu-idle` hit it because
-  `firmware/app/prj.conf` happens to raise the stack to 2560. Raising it in the
-  module changed nothing. The fit was a coincidence.
-* **Not the reset command being rejected.** `reset()` returns success; the
-  failure surfaces later, in `reconnect()`.
-
-### Where it actually is, read over SWD
-
-The Debug Probe's firmware had to be updated first (`bcdDevice 1.01` -> `2.31`).
-pyOCD *listing* the probe on the old firmware is not evidence that SWD works --
-it only exercises USB enumeration, and every transfer hung until the update.
-
-With the probe working, on a board left in the wedged state:
-
-* **The core is in Zephyr's idle thread.** `pc` resolves to `__ISB`
-  (`cmsis_gcc.h:175`) called from `idle` (`kernel/idle.c:30`), and `xpsr`'s
-  exception field is 0, so it is in thread mode rather than an ISR. Nothing has
-  faulted; there is simply no thread ready to run.
-* **The kernel clock is fine.** `TIMERAWL` advances while the core runs. (Read
-  it *running*: RP2040's `DBGPAUSE` freezes the timer while halted for debug,
-  which looks exactly like a stopped clock if you only read it halted.)
-* **The USB bus is live.** `SIE_STATUS = 0x40050005` -> `CONNECTED`,
-  `VBUS_DETECTED`; raw `INTR` has `DEV_SOF` set, so SOF packets are arriving.
-  `INTE` enables `BUFF_STATUS` and `SETUP_REQ`, and the NVIC has the USB IRQ
-  enabled. `INTS` is 0 -- nothing pending.
-* **One endpoint is wedged.** Buffer control for the management channel's bulk
-  OUT reads `0x0000a007`: `FULL=1`, `LENGTH=7`, `AVAILABLE=0`. Seven received
-  bytes that software never consumed, on an endpoint that will therefore never
-  accept another packet. Every other OUT endpoint reads `AVAILABLE=1` and is
-  correctly armed.
-
-That is the whole failure. The host's SMP writes are NAK'd forever, no
-`BUFF_STATUS` interrupt is raised, and the core sleeps -- which is why the board
-looks dead while being entirely healthy. It also explains the misleading part:
-control transfers still work (`SETUP_REQ` is armed), so `lsusb` reports a
-present, healthy device.
-
-**Do not read this as a diagnosis of the cause.** It is where the damage shows.
-Why that one completion is lost, and why only after a flash write followed by a
-reset, is still open. The obvious candidate is the long interrupt-off window in
-`flash_rpi_pico.c` -- `irq_lock()` is held across each `flash_range_program`
-call -- interacting with the RP2040's double-buffered endpoints, but that has
-not been demonstrated.
-
-Worth noting three hypotheses were wrong before this: a system workqueue stack
-overflow, the idle application specifically, and a stopped kernel clock. Each
-fit every symptom visible from the host. The register read settled in one go
-what five replugs of black-box inference could not.
-
-Until this is understood, **a hardware gate cannot run its happy path on
-RP2040**, which is a good argument for keeping the gate a bench script that a
-human starts rather than anything automated.
-
-### The swap never happens, and where to pick it up
-
-Narrowed with SWD and the ability to stage an image without resetting
-(`STAGE_UPLOAD=... cargo run -p smp-client --example stage`). With slot 1 staged
-and `pending` set, a reset produces one of two outcomes and **never a swap**:
-
-* **Lockup.** `xpsr` exception 3 (HardFault) with `SP = 0xffffffe0` -- SP was
-  zero when the fault was taken, which is what chain-loading an image with a
-  blank vector table looks like. `VTOR = 0x10000100` is MCUboot's own vector
-  table, so the reset happens and the bootloader runs.
-* **Boots slot 0 unchanged** and silently clears the pending flag.
-
-The USB endpoint state described above is **downstream of this**, not a separate
-bug: `BUFF_STATUS` shows an unserviced pending bit, which is what a dead core
-looks like from the controller's side. The host keeps seeing the device
-throughout because `SYSRESETREQ` resets the processor but not the RP2040 USB
-block, so the pullup never drops and no disconnect is ever signalled.
-
-**The lead worth following.** Slot 0's trailer carries valid MCUboot magic and
-`copy_done = 0x01`, but `image_ok = 0xff` -- unset. The bootloader therefore
-regards the *running* image as unconfirmed, while `img_mgmt` reports
-`confirmed=true`, and the provisioning image was written with a confirmed
-trailer. A primary image MCUboot thinks is unconfirmed would have it attempting
-a revert on every boot with nothing valid to revert to, which matches the
-alternating behaviour above.
-
-**Do this in MCUboot's simulator, not on hardware.** `sim/` compiles the real
-`bootutil` sources over a NOR-flash model with injectable failures, and the CI
-job already runs it. A trailer-semantics bug is exactly what it exists to
-reproduce, and doing it there costs no bench time and no board states.
-
-Two things that did not pan out, recorded so they are not retried: MCUboot's
-console is on `uart0` and produced nothing over the probe's UART bridge in
-either pin orientation, and pyOCD breakpoints did not fire on this target
-(`boot_go` never trapped despite the bootloader demonstrably running).
+The genuine upstream finding that survived is unrelated to the deploy path: see
+`docs/MCUBOOT_SWAP_BUG.md`.
 
 ## Staging
 
