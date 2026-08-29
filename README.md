@@ -24,19 +24,38 @@ the container.
 
 ## Status
 
-Phases 0 of the plan is complete and the simulator loop runs headless in CI.
+**The full loop works on real hardware.** Two firmware applications, each an
+ordinary container project, deployed and switched on a Raspberry Pi Pico with
+`docker run` — see `docs/WALKTHROUGH.md`, where every command and transcript was
+run against the board.
 
 Working:
 
-- The five OCI verbs, driven successfully by **Docker 28** and **podman**.
+- The five OCI verbs, driven by **Docker 28** and **podman**.
 - The full deploy sequence — upload, mark test, reset, verify, confirm — against
-  both a mock device and **Zephyr native_sim**, end to end through a container
-  engine (`scripts/native-sim-engine-e2e.sh`).
-- Exclusive occupancy, restart-policy propagation, `docker logs` capture.
+  a mock device, **Zephyr native_sim**, and an **RP2040 with MCUboot**, end to
+  end through a container engine.
+- Firmware as a self-contained container project: `docker build .` from an
+  application directory, against a reusable builder image
+  (`firmware/examples/app1`, `app2`).
+- Provisioning over UF2 with no debug probe (`docs/PROVISIONING.md`).
+- Exclusive occupancy, restart-policy propagation, `docker logs` capture,
+  same-digest no-op redeploy.
 - A fault-injecting SMP mock with seven failure modes.
 
-Not yet built: the Zephyr module and native_sim integration (phase 1), and
-hardware bring-up (phase 2).
+Not built:
+
+- **A hardware CI gate.** CI is simulated-only, deliberately; the design and its
+  traps are written up in `docs/HARDWARE_GATE.md`.
+- **CAN transport.** The target annotation is transport-prefixed for it, but
+  only `usb:` and `tty:` are implemented.
+- **A fleet trust root.** Everything is signed with MCUboot's *published*
+  development key, which is fine for a bench PoC and unfit for anything else.
+  See the signing-key warning in `docs/FIRMWARE_GUIDE.md`.
+
+> **On CI:** `.github/workflows/ci.yml` is a well-formed file, not a running
+> system. This repo has no git remote and no tags, so it has never executed
+> anywhere. The suites it runs do pass locally.
 
 ## Layout
 
@@ -61,6 +80,9 @@ hardware bring-up (phase 2).
 | `scripts/setup-prereqs.sh` | one-time host setup for hardware work (`--check` to just verify) |
 
 ## Trying it
+
+No hardware needed — this deploys a throwaway image to a mock device on a pty.
+For the real thing on a board, follow `docs/WALKTHROUGH.md` instead.
 
 ```bash
 cargo build

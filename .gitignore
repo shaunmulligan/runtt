@@ -8,15 +8,12 @@
 /modules/
 /bootloader/
 /tools/
+# West/CMake build trees. The glob matters: naming individual trees is how
+# build-diag/, build-pico-idle/, build-pico-novalidate/ and build-pico-recovery/
+# were committed by accident -- 6300 files of build output.
 /build/
-/build-pico/
-/build-pico-mcuboot/
-# generated provisioning artefacts
-provision.uf2
-provision.hex
+/build-*/
 /firmware/**/build/
-/build-pico/
-/build-pico-mcuboot/
 # generated provisioning artefacts
 provision.uf2
 provision.hex

@@ -137,18 +137,21 @@ not a demux failure. See `docs/MANUAL_VERIFICATION.md`.
 
 ## 3. Building the firmware image with Docker
 
-The firmware service is an ordinary container image, and `firmware/app/Dockerfile`
-is the canonical two-stage build: Zephyr toolchain in stage one, `FROM scratch`
-carrying only the signed image in stage two.
+The firmware service is an ordinary container image: Zephyr toolchain in stage
+one, `FROM scratch` carrying only the signed image in stage two.
 
-**The build context is `firmware/`, not `firmware/app/`** — the Dockerfile lives
-in `app/` but copies the whole manifest repo, because the module and the west
-manifest are siblings of the application.
+The build environment comes from a **builder image**, built once, which is what
+lets an application directory be self-contained:
 
 ```bash
-podman build -f firmware/app/Dockerfile \
-  --build-arg BOARD=rpi_pico/rp2040/mcuboot \
-  -t mcu-fw:pico firmware/
+docker build -f firmware/builder/Dockerfile -t balena-mcu-builder:v4.4.2 firmware/
+```
+
+Then build the application from inside its own directory:
+
+```bash
+cd firmware/examples/app1
+podman build --build-arg BOARD=rpi_pico/rp2040/mcuboot -t mcu-fw:pico .
 ```
 
 Then deploy it exactly like any other image:
@@ -167,25 +170,27 @@ podman image inspect mcu-fw:pico --format '{{.RootFS.Layers}}'
 podman save mcu-fw:pico | tar -t | head
 ```
 
-> **Two things this Dockerfile needs that are easy to miss**, both fixed here
-> but worth understanding if you write your own:
+> **Two things the application Dockerfile needs that are easy to miss**, both
+> handled in the examples but worth understanding if you write your own:
 >
-> * `-DZEPHYR_EXTRA_MODULES=/ws/firmware/balena-mcu`. The module lives *inside*
->   the manifest repo, and west only auto-discovers a `module.yml` at a
->   project's root — ours is nested, so without this the module and its snippet
->   simply are not there. Both build scripts carry the same line.
+> * `-DZEPHYR_EXTRA_MODULES=/ws/balena-mcu`. The module lives *inside* the
+>   manifest repo, and west only auto-discovers a `module.yml` at a project's
+>   root — ours is nested, so without this the module and its snippet simply are
+>   not there. Both build scripts carry the same line.
 > * `-Dapp_SNIPPET=` rather than `-S`. Under sysbuild a top-level snippet
 >   applies to **every** image, including MCUboot. See `docs/FIRMWARE_GUIDE.md`.
 
-**Expect this to be slow the first time.** The Zephyr CI base image is tens of
-gigabytes, and the build then fetches Zephyr and builds MCUboot alongside the
-application. For iterating on firmware, `scripts/build-pico.sh` against a local
-west workspace is far quicker; the Docker path is for producing the artefact you
-actually ship.
+**Expect the builder image to be slow the first time** — the Zephyr CI base is
+tens of gigabytes, and it then fetches Zephyr and its modules. That cost is paid
+once; application builds afterwards are quick. For iterating on firmware,
+`scripts/build-pico.sh` against a local west workspace is quicker still; the
+Docker path is for producing the artefact you actually ship.
+
+See `docs/WALKTHROUGH.md` for this build path end to end on hardware.
 
 ---
 
-## 3. On hardware
+## 4. On hardware
 
 Both boards we ship are **two-channel**, so they take the plain path and the
 demux is not involved. To exercise it on real hardware, address the management
@@ -212,7 +217,7 @@ python3 bootloader/mcuboot/scripts/imgtool.py sign \
   --key bootloader/mcuboot/root-rsa-2048.pem \
   --header-size 0x200 --align 4 \
   --version 0.4.0 --slot-size 0xd0000 \
-  build-pico-mcuboot/app/zephyr/zephyr.bin /tmp/v040.signed.bin
+  build-pico-mcuboot/app/zephyr/zephyr.bin /tmp/v040.signed.bin   # ./scripts/build-pico.sh
 ```
 
 > ### ⚠️ No `--pad-header` for a hardware image
