@@ -53,17 +53,28 @@ struct Rig {
 
 /// Stand up a mock on a pty and write an OCI bundle pointing at it.
 fn rig(name: &str, fault: Fault, firmware: &[u8]) -> Rig {
+    rig_with_chatter(name, fault, firmware, None)
+}
+
+/// As `rig`, but the device also prints application log output on the same
+/// link — i.e. a single-channel target, which is the shape that exercises the
+/// runtime's log demux.
+fn rig_with_chatter(name: &str, fault: Fault, firmware: &[u8], chatter: Option<&str>) -> Rig {
     let (mut master, slave) = serialport::TTYPort::pair().expect("pty pair");
     let slave_path = slave.name().expect("pty slave name");
     master
         .set_timeout(Duration::from_millis(50))
         .expect("set timeout");
 
+    let chatter = chatter.map(str::to_owned);
     let mock = std::thread::spawn(move || {
         // Hold the slave open for the whole test: dropping it tears down the
         // pty before the runtime can open it.
         let _keepalive = slave;
         let mut srv = Server::new(master, fault);
+        if let Some(text) = chatter {
+            srv = srv.with_chatter(text);
+        }
         let _ = srv.serve();
     });
 
@@ -525,5 +536,40 @@ fn firmware_without_describe_still_deploys_but_warns() {
     );
     // And the deploy still completed.
     assert!(text.contains("image confirmed"));
+    rig.cleanup();
+}
+
+/// The single-channel case, end to end: a device whose application logs share
+/// the management link must still deploy **and** get its output into the
+/// container's stdio.
+///
+/// Before the demux existed this test's second assertion failed while the first
+/// passed — the deploy worked and every log line was silently discarded by the
+/// frame reader, so a single-channel container looked healthy and said nothing.
+#[test]
+fn a_single_channel_device_deploys_and_still_gets_its_logs() {
+    let _seq = serial();
+    let rig = rig_with_chatter("demux", Fault::None, SIGNED, Some("<inf> app: alive tick"));
+    let log = rig.create();
+
+    let out = rig.verb(&["start", &rig.id]);
+    assert!(out.status.success(), "start failed: {out:?}");
+
+    // The deploy must still work, with the safety ordering intact, even though
+    // application output is interleaved on the same link.
+    let text = rig.wait_for(&log, "image confirmed", Duration::from_secs(60));
+    let staged = text.find("marked test").expect("should mark test");
+    let confirmed = text.find("image confirmed").expect("should confirm");
+    assert!(
+        staged < confirmed,
+        "the demux must not disturb the test-before-confirm ordering. Got:\n{text}"
+    );
+
+    // And the application's own output must reach the container's stdout.
+    let text = rig.wait_for(&log, "<inf> app: alive tick", Duration::from_secs(30));
+    assert!(
+        !text.contains("\u{6}\u{9}"),
+        "raw SMP framing bytes must never be printed as log output:\n{text}"
+    );
     rig.cleanup();
 }

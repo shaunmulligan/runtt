@@ -17,7 +17,7 @@
 //! reset by itself.
 
 use anyhow::{bail, Context, Result};
-use smp_client::{SmpClient, ToolkitClient};
+use smp_client::{LogDemux, SmpClient, ToolkitClient};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use transport::resolve::Resolved;
@@ -45,13 +45,24 @@ pub struct Deploy<'a> {
     pub skip_if_same: bool,
 }
 
-fn connect(path: &Path) -> Result<ToolkitClient> {
+/// Open the management channel.
+///
+/// `demux_logs` is set only for single-channel targets, where the application's
+/// console output shares this link. It peels those lines off to stdout; without
+/// it they are silently discarded by the frame reader and the container gets no
+/// logs at all. Two-channel targets take the plain path unchanged — the log
+/// channel is separate there, and this link carries nothing but SMP.
+fn connect(path: &Path, demux_logs: bool) -> Result<ToolkitClient> {
     let ch = SerialChannel::open(
         path.to_str().context("device path is not valid UTF-8")?,
         BAUD,
         SMP_TIMEOUT,
     )?;
-    let c = ToolkitClient::new(ch, SMP_TIMEOUT)?;
+    let c = if demux_logs {
+        ToolkitClient::new(LogDemux::new(ch, SMP_TIMEOUT)?, SMP_TIMEOUT)?
+    } else {
+        ToolkitClient::new(ch, SMP_TIMEOUT)?
+    };
     // Ask the device for its own buffer sizes rather than assuming Zephyr's
     // defaults; a mis-sized frame is a confusing mid-upload failure.
     c.tune_frame_size();
@@ -86,7 +97,7 @@ impl Deploy<'_> {
             "deploying firmware"
         );
 
-        let mut c = connect(&self.resolved.mgmt)?;
+        let mut c = connect(&self.resolved.mgmt, self.resolved.log.is_none())?;
         c.echo("balena")
             .context("the device did not answer an SMP echo; is the firmware contract present?")?;
 
@@ -340,7 +351,7 @@ impl Deploy<'_> {
         let mut last_err = None;
         while Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(500));
-            match connect(&self.resolved.mgmt).and_then(|mut c| {
+            match connect(&self.resolved.mgmt, self.resolved.log.is_none()).and_then(|mut c| {
                 c.echo("balena")?;
                 Ok(c)
             }) {

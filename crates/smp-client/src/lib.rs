@@ -6,9 +6,11 @@
 
 use anyhow::Result;
 
+pub mod demux;
 pub mod describe;
 pub mod mcuboot;
 pub mod toolkit;
+pub use demux::LogDemux;
 pub use toolkit::ToolkitClient;
 
 /// One image slot as reported by the SMP img group (group 1, command 0).

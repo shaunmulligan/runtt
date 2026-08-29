@@ -92,6 +92,32 @@ impl SerialChannel {
         }
     }
 
+    /// Duplicate the underlying port, so one handle can read while another
+    /// writes.
+    ///
+    /// Needed by the single-channel log demux: one thread must own the read
+    /// side continuously (otherwise log output sits in the kernel buffer until
+    /// the next SMP operation drains it), while the SMP client still needs to
+    /// write requests. `serialport` keeps its timeout per handle rather than on
+    /// the tty, so the two halves can be timed independently.
+    pub fn try_clone(&self) -> Result<Self> {
+        let port = self
+            .port
+            .try_clone()
+            .with_context(|| format!("failed to duplicate {}", self.name))?;
+        Ok(Self {
+            port,
+            name: self.name.clone(),
+        })
+    }
+
+    /// Set this handle's read timeout. Affects only this handle.
+    pub fn set_timeout(&mut self, timeout: Duration) -> Result<()> {
+        self.port
+            .set_timeout(timeout)
+            .with_context(|| format!("failed to set timeout on {}", self.name))
+    }
+
     /// A connected pty pair, for tests: `.0` stands in for the host side, `.1`
     /// for the device side.
     pub fn pty_pair() -> Result<(Self, Self)> {

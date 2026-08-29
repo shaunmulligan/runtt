@@ -42,6 +42,11 @@ struct Args {
     /// Create a stable symlink to the allocated pty. Strongly recommended.
     #[arg(long)]
     symlink: Option<std::path::PathBuf>,
+
+    /// Also emit application log output on the same link, making this a
+    /// single-channel device. Use to exercise the runtime's log demux.
+    #[arg(long)]
+    chatter: Option<String>,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
@@ -114,6 +119,9 @@ fn main() -> Result<()> {
     }
 
     let mut server = Server::new(master, fault);
+    if let Some(text) = args.chatter.as_deref() {
+        server = server.with_chatter(text);
+    }
     server.serve().context("SMP server loop failed")?;
     Ok(())
 }

@@ -177,7 +177,7 @@ pub fn run(
     if resolved.log.is_none() {
         // Not a failure: single-channel targets and probe-UART bring-up both
         // look like this. Say so, because silence here is confusing.
-        println!("mcu: single channel; application logs share the management link");
+        println!("mcu: single channel; application logs are demultiplexed from the management link");
     }
 
     // An explicit log target overrides whatever the transport could work out,

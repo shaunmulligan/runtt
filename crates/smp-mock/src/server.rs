@@ -51,7 +51,18 @@ pub struct Server<T> {
     decoder: Decoder,
     /// Once set, stop answering: the emulation of a yanked cable.
     silent: bool,
+    /// Application log output to emit on this same link, as a single-channel
+    /// device does. `None` keeps the link SMP-only, which is the two-channel
+    /// shape. Lines are emitted whole and between frames, which is what
+    /// Zephyr's log backend actually does — interleaving *within* a frame is a
+    /// different hazard and deliberately not emulated here.
+    chatter: Option<String>,
+    next_chatter: std::time::Instant,
+    chatter_seq: u32,
 }
+
+/// How often a chattering mock speaks.
+const CHATTER_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
 
 impl<T: Read + Write> Server<T> {
     pub fn new(io: T, fault: Fault) -> Self {
@@ -60,7 +71,20 @@ impl<T: Read + Write> Server<T> {
             dev: Device::provisioned(fault),
             decoder: Decoder::new(),
             silent: false,
+            chatter: None,
+            next_chatter: std::time::Instant::now(),
+            chatter_seq: 0,
         }
+    }
+
+    /// Emit `text` periodically as application log output on the same link.
+    ///
+    /// This is what makes the mock a *single-channel* device rather than a
+    /// bare SMP endpoint, and it is the only way to prove the runtime's demux
+    /// end to end without hardware.
+    pub fn with_chatter(mut self, text: impl Into<String>) -> Self {
+        self.chatter = Some(text.into());
+        self
     }
 
     pub fn device(&self) -> &Device {
@@ -81,6 +105,7 @@ impl<T: Read + Write> Server<T> {
         let mut buf = [0u8; 512];
         let mut pending: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
         loop {
+            self.speak();
             if pending.is_empty() {
                 match self.io.read(&mut buf) {
                     Ok(0) => {
@@ -148,6 +173,24 @@ impl<T: Read + Write> Server<T> {
                 self.io.flush()?;
             }
         }
+    }
+
+    /// Emit one line of application log output if it is due.
+    ///
+    /// Deliberately not gated on `silent`: a yanked cable stops SMP responses,
+    /// but this models the application still running and printing.
+    fn speak(&mut self) {
+        let Some(text) = self.chatter.clone() else {
+            return;
+        };
+        if std::time::Instant::now() < self.next_chatter {
+            return;
+        }
+        self.next_chatter = std::time::Instant::now() + CHATTER_EVERY;
+        let seq = self.chatter_seq;
+        self.chatter_seq += 1;
+        let _ = write!(self.io, "{text} {seq}\r\n");
+        let _ = self.io.flush();
     }
 
     fn dispatch(&mut self, req: &Frame) -> Result<Option<Frame>> {
