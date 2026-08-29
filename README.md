@@ -55,6 +55,7 @@ hardware bring-up (phase 2).
 | `docs/MANUAL_LOG_DEMUX.md` | verify the single-channel log demux by hand |
 | `docs/HARDWARE_GATE.md` | why CI is simulated-only, and the design for a hardware gate |
 | `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need (future cycle) |
+| `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: MCUboot hangs in find_last_idx on RP2040 |
 | `udev/90-balena-mcu.rules` | device access and the contract-keyed device tree |
 | `scripts/setup-prereqs.sh` | one-time host setup for hardware work (`--check` to just verify) |
 
