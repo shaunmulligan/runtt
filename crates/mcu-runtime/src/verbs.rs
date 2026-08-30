@@ -64,10 +64,9 @@ pub fn create(ctx: &Ctx, id: &str, bundle: &Path, pid_file: Option<&Path>) -> Re
 
     // Parse now so a mislabelled service fails immediately with a clear message
     // rather than timing out against a device that was never going to answer.
-    let parsed = transport::Target::parse(&target)?;
-    if let transport::Target::Can { .. } = parsed {
-        bail!("can: targets are not implemented this cycle (named production follow-on)");
-    }
+    // The value is discarded: `proxy` re-parses against a live system, and doing
+    // it here as well is a cheap guard on the label's shape alone.
+    transport::Target::parse(&target)?;
 
     let firmware = locate_firmware(&spec, bundle)?;
 

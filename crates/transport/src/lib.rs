@@ -1,8 +1,9 @@
 //! The transport seam.
 //!
-//! Everything above this boundary speaks SMP; everything below moves bytes. The
-//! PoC ships USB (CDC-ACM) and bare serial; CAN (SMP-over-ISO-TP) is the named
-//! production follow-on and must be addable without touching SMP logic.
+//! Everything above this boundary speaks SMP; everything below moves bytes.
+//! USB (CDC-ACM), bare serial, and CAN (SMP over ISO-TP) all arrive here as a
+//! placement label and leave as something `flash.rs` can open, without the SMP
+//! logic above knowing which one it got.
 
 use anyhow::Result;
 use std::io::{Read, Write};
@@ -19,8 +20,10 @@ pub enum Target {
     Usb { port_path: String },
     /// `tty:<device>` — e.g. `tty:ttyS3`, a bare serial port.
     Tty { device: String },
-    /// `can:<iface>/<node-id>` — not implemented this cycle; parsed so that a
-    /// mislabelled service fails with a clear message rather than a timeout.
+    /// `can:<iface>/<node-id>` — SMP over ISO-TP on a SocketCAN interface.
+    /// The node id is a standard 11-bit identifier; the device replies on
+    /// `node_id + 1`. Kept as a string here and parsed in `resolve`, so that
+    /// parsing a label never needs a live bus.
     Can { iface: String, node_id: String },
 }
 

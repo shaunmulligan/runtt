@@ -170,25 +170,44 @@ pub fn run(
     let resolved = transport::resolve::resolve(&parsed)
         .with_context(|| format!("could not resolve target {target}"))?;
     tracing::info!(
-        mgmt = %resolved.mgmt.display(),
-        log = ?resolved.log.as_ref().map(|p| p.display().to_string()),
+        mgmt = %resolved,
+        log = ?resolved.log_path().map(|p| p.display().to_string()),
         "resolved target"
     );
-    if resolved.log.is_none() {
-        // Not a failure: single-channel targets and probe-UART bring-up both
-        // look like this. Say so, because silence here is confusing.
-        println!("mcu: single channel; application logs are demultiplexed from the management link");
-    }
 
     // An explicit log target overrides whatever the transport could work out,
-    // which is nothing at all for tty:.
+    // which is nothing at all for tty: and nothing at all for can:.
     let mut resolved = resolved;
     if let Some(lt) = log_target {
         let parsed = transport::Target::parse(lt)?;
         let r = transport::resolve::resolve(&parsed)
             .with_context(|| format!("could not resolve log target {lt}"))?;
-        tracing::info!(log = %r.mgmt.display(), "using the log channel given on the spec");
-        resolved.log = Some(r.mgmt);
+        match r {
+            transport::resolve::Resolved::Serial { mgmt, .. } => {
+                tracing::info!(log = %mgmt.display(), "using the log channel given on the spec");
+                resolved.set_log(mgmt);
+            }
+            // A CAN target has no character device to read, so it cannot serve
+            // as somebody else's log channel.
+            transport::resolve::Resolved::Can { .. } => {
+                anyhow::bail!("log target {lt} is a CAN target; a log channel must be a serial device")
+            }
+        }
+    }
+
+    if resolved.log_path().is_none() {
+        // Not a failure, but the reason differs by transport and the operator
+        // should not have to guess which one they are looking at.
+        match resolved {
+            transport::resolve::Resolved::Serial { .. } => println!(
+                "mcu: single channel; application logs are demultiplexed from the management link"
+            ),
+            transport::resolve::Resolved::Can { .. } => println!(
+                "mcu: CAN target with no log channel; \
+                 set the {} annotation to a tty: device to get application logs",
+                crate::annotations::SPEC_LOG_TARGET
+            ),
+        }
     }
 
     let deploy = crate::flash::Deploy {
@@ -200,6 +219,6 @@ pub fn run(
     let client = deploy.run()?;
 
     let stop = || SIGNAL_RECEIVED.load(Ordering::SeqCst) != 0;
-    crate::flash::stay_resident(client, resolved.log.as_deref(), &stop)?;
+    crate::flash::stay_resident(client, resolved.log_path(), &stop)?;
     Ok(0)
 }

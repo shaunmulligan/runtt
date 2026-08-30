@@ -122,12 +122,31 @@ sudo ip link set vcan0 up                        # device first: `set up vcan0` 
 sudo ip link property add dev vcan0 altname zcan0 # native_sim hardcodes "zcan0"
 ```
 
-Still to do: wire `Target::Can` through `resolve()` and give the runtime a way to
-open one, which needs `Resolved` to stop being path-shaped. And **logs over CAN
-are unsolved** -- the single-channel demux keys off the console transport's
-framing markers, which raw SMP over ISO-TP does not have, so a CAN target has
-management and no log channel until there is a second ISO-TP address or an
-SMP-based log group.
+### Status: the runtime deploys over CAN, 2026-08-30
+
+`Resolved` is now an enum rather than a path pair, so `can:` labels go all the way
+through. `scripts/native-sim-can-e2e.sh` is the serial gate's twin and differs from
+it in the placement label and almost nothing else -- which is the transport seam
+doing its job:
+
+```
+$ ./scripts/native-sim-can-e2e.sh
+  ok: runtime resolved the can: placement label
+  ok: runtime used the MCUboot image digest, not the file hash
+  ok: uploaded over ISO-TP and marked test
+  ok: slot 1 holds 8364 bytes starting with the MCUboot magic
+  ok: MCUboot trailer written: device reports swap type 'test'
+  ok: os reset re-execed the simulator, and it came back on the bus
+```
+
+It gates in CI alongside the existing native_sim jobs.
+
+**Logs over CAN remain unsolved for the bus itself.** The single-channel demux
+keys off the console transport's framing markers, which raw SMP over ISO-TP does
+not have. There is now a working half-answer: a CAN target accepts an explicit
+`io.balena.mcu.log-target` naming a `tty:` device, so a board managed over the bus
+can still return its console over a wire. A log channel carried *on* the bus needs
+either a second ISO-TP address or an SMP-based log group, and is not built.
 
 **Hardware:** two CAN boards are on order -- a Waveshare ESP32-S3 (TWAI, paired
 with an SN65HVD230 we already have) and an Adafruit RP2040 CAN Feather (MCP25625,

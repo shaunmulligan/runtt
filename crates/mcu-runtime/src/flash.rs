@@ -17,9 +17,11 @@
 //! reset by itself.
 
 use anyhow::{bail, Context, Result};
+use smp_client::can::IsoTpTransport;
 use smp_client::{LogDemux, SmpClient, ToolkitClient};
 use std::path::Path;
 use std::time::{Duration, Instant};
+use transport::can::IsoTpChannel;
 use transport::resolve::Resolved;
 use transport::usb::SerialChannel;
 
@@ -45,28 +47,50 @@ pub struct Deploy<'a> {
     pub skip_if_same: bool,
 }
 
-/// Open the management channel.
+/// Open the management channel, whichever transport it lives on.
+fn connect(resolved: &Resolved) -> Result<ToolkitClient> {
+    let c = match resolved {
+        Resolved::Serial { mgmt, log } => connect_serial(mgmt, log.is_none())?,
+        Resolved::Can {
+            iface, node_id, ..
+        } => connect_can(iface, *node_id)?,
+    };
+    // Ask the device for its own buffer sizes rather than assuming Zephyr's
+    // defaults; a mis-sized frame is a confusing mid-upload failure.
+    c.tune_frame_size();
+    Ok(c)
+}
+
+/// Open a character device as the management channel.
 ///
 /// `demux_logs` is set only for single-channel targets, where the application's
 /// console output shares this link. It peels those lines off to stdout; without
 /// it they are silently discarded by the frame reader and the container gets no
 /// logs at all. Two-channel targets take the plain path unchanged — the log
 /// channel is separate there, and this link carries nothing but SMP.
-fn connect(path: &Path, demux_logs: bool) -> Result<ToolkitClient> {
+fn connect_serial(path: &Path, demux_logs: bool) -> Result<ToolkitClient> {
     let ch = SerialChannel::open(
         path.to_str().context("device path is not valid UTF-8")?,
         BAUD,
         SMP_TIMEOUT,
     )?;
-    let c = if demux_logs {
-        ToolkitClient::new(LogDemux::new(ch, SMP_TIMEOUT)?, SMP_TIMEOUT)?
+    if demux_logs {
+        ToolkitClient::new(LogDemux::new(ch, SMP_TIMEOUT)?, SMP_TIMEOUT)
     } else {
-        ToolkitClient::new(ch, SMP_TIMEOUT)?
-    };
-    // Ask the device for its own buffer sizes rather than assuming Zephyr's
-    // defaults; a mis-sized frame is a confusing mid-upload failure.
-    c.tune_frame_size();
-    Ok(c)
+        ToolkitClient::new(ch, SMP_TIMEOUT)
+    }
+}
+
+/// Open an ISO-TP channel on a CAN bus as the management channel.
+///
+/// No demux equivalent exists here: the console framing the `LogDemux` keys off
+/// is a property of the SMP *console* transport, and ISO-TP carries raw SMP with
+/// no such markers. A CAN target therefore has no log channel unless the spec
+/// names one separately. See docs/HARDWARE_TARGETS.md.
+fn connect_can(iface: &str, node_id: u32) -> Result<ToolkitClient> {
+    let ch = IsoTpChannel::open(iface, node_id, SMP_TIMEOUT)
+        .with_context(|| format!("could not open ISO-TP on {iface} node {node_id:#x}"))?;
+    ToolkitClient::from_transport(IsoTpTransport::new(ch), SMP_TIMEOUT)
 }
 
 /// Refuse to confirm an image whose contract this runtime does not implement.
@@ -149,7 +173,7 @@ impl Deploy<'_> {
             "deploying firmware"
         );
 
-        let mut c = connect(&self.resolved.mgmt, self.resolved.log.is_none())?;
+        let mut c = connect(&self.resolved)?;
         c.echo("balena")
             .context("the device did not answer an SMP echo; is the firmware contract present?")?;
 
@@ -402,7 +426,7 @@ impl Deploy<'_> {
 
         // A channel-count disagreement is not fatal, but it explains a silent
         // log channel, which is otherwise a confusing thing to chase.
-        let resolved_channels = if self.resolved.log.is_some() { 2 } else { 1 };
+        let resolved_channels = self.resolved.channels();
         if d.channels != resolved_channels {
             tracing::warn!(
                 device_reports = d.channels,
@@ -426,7 +450,7 @@ impl Deploy<'_> {
         let mut last_err = None;
         while Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(500));
-            match connect(&self.resolved.mgmt, self.resolved.log.is_none()).and_then(|mut c| {
+            match connect(&self.resolved).and_then(|mut c| {
                 c.echo("balena")?;
                 Ok(c)
             }) {

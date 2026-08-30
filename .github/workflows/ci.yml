@@ -120,6 +120,26 @@ jobs:
       - name: Phase-1 gate (full stack through podman)
         run: ./scripts/native-sim-engine-e2e.sh
 
+      # The second transport, on a virtual bus. The whole reason SMP-over-CAN
+      # was built on ISO-TP rather than hand-rolled segmentation: Linux and
+      # Zephyr both implement it, so the loop closes on one machine with no
+      # transceivers and no wiring, and gates here exactly like the serial one.
+      #
+      # The script SKIPS rather than fails when the bus is missing, so make the
+      # setup a hard step: a silent skip in CI would be worse than no job.
+      - name: Set up a virtual CAN bus
+        run: |
+          sudo modprobe vcan
+          sudo modprobe can-isotp
+          sudo ip link add dev vcan0 type vcan
+          sudo ip link set vcan0 up
+          # native_sim's CAN driver hardcodes the name "zcan0".
+          sudo ip link property add dev vcan0 altname zcan0
+          ip -d link show vcan0
+
+      - name: Phase-1 gate (SMP over CAN)
+        run: ./scripts/native-sim-can-e2e.sh
+
   mcuboot-sim:
     # The coverage native_sim structurally cannot give us. MCUboot's own Rust
     # simulator compiles the real bootutil C sources over a NOR flash model with

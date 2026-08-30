@@ -14,13 +14,68 @@ use crate::Target;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-/// The device paths for one target's channels.
+/// Where one target's channels actually are.
+///
+/// Not a path pair, because CAN targets are not path-shaped: they are addressed
+/// by interface and node id, and no character device exists for them. Making
+/// this an enum is what keeps `flash.rs` from having to pretend otherwise.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resolved {
-    pub mgmt: PathBuf,
-    /// `None` on single-channel targets (ESP32-C3 class, or bring-up over a
-    /// debug probe's UART bridge), where logs share the management channel.
-    pub log: Option<PathBuf>,
+pub enum Resolved {
+    /// One or two character devices — USB CDC-ACM, or a bare UART.
+    Serial {
+        mgmt: PathBuf,
+        /// `None` on single-channel targets (ESP32-C3 class, or bring-up over a
+        /// debug probe's UART bridge), where logs share the management channel.
+        log: Option<PathBuf>,
+    },
+    /// A SocketCAN interface and an ISO-TP node id. The host sends on `node_id`
+    /// and the device replies on `node_id + 1`; see `transport::can`.
+    Can {
+        iface: String,
+        node_id: u32,
+        /// CAN carries no log channel of its own. A `tty:` log target on the
+        /// spec puts one here — a board managed over the bus whose console
+        /// still comes back over a wire is a real and useful arrangement.
+        log: Option<PathBuf>,
+    },
+}
+
+impl Resolved {
+    /// The log channel, if this target has one at all.
+    pub fn log_path(&self) -> Option<&Path> {
+        match self {
+            Resolved::Serial { log, .. } | Resolved::Can { log, .. } => log.as_deref(),
+        }
+    }
+
+    /// Attach an explicitly-specified log channel, overriding whatever the
+    /// transport worked out for itself.
+    pub fn set_log(&mut self, path: PathBuf) {
+        match self {
+            Resolved::Serial { log, .. } | Resolved::Can { log, .. } => *log = Some(path),
+        }
+    }
+
+    /// How many channels this target presents, for the contract check against
+    /// what the device says it has.
+    pub fn channels(&self) -> u32 {
+        if self.log_path().is_some() {
+            2
+        } else {
+            1
+        }
+    }
+}
+
+impl std::fmt::Display for Resolved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Resolved::Serial { mgmt, .. } => write!(f, "{}", mgmt.display()),
+            Resolved::Can {
+                iface, node_id, ..
+            } => write!(f, "can:{iface}/{node_id:#x}"),
+        }
+    }
 }
 
 /// One candidate tty discovered in sysfs.
@@ -46,13 +101,30 @@ pub fn resolve(target: &Target) -> Result<Resolved> {
             if !path.exists() {
                 bail!("{} does not exist", path.display());
             }
-            Ok(Resolved {
+            Ok(Resolved::Serial {
                 mgmt: path,
                 log: None,
             })
         }
         Target::Usb { port_path } => resolve_usb(port_path),
-        Target::Can { .. } => bail!("can: transport is not implemented this cycle"),
+        Target::Can { iface, node_id } => {
+            let node_id = parse_node_id(node_id)?;
+            // Check the interface exists here rather than letting `bind()` fail
+            // later with an errno. A typo'd interface name is the likeliest
+            // mistake and deserves to say so.
+            if !Path::new("/sys/class/net").join(iface).is_dir() {
+                bail!(
+                    "no network interface named {iface:?}. For a virtual bus: \
+                     `sudo modprobe vcan can-isotp && sudo ip link add dev {iface} type vcan \
+                     && sudo ip link set {iface} up`"
+                );
+            }
+            Ok(Resolved::Can {
+                iface: iface.clone(),
+                node_id,
+                log: None,
+            })
+        }
     }
 }
 
@@ -96,11 +168,11 @@ fn resolve_usb(port_path: &str) -> Result<Resolved> {
         .map(|c| c.dev.clone());
 
     match mgmt {
-        Some(mgmt) => Ok(Resolved { mgmt, log }),
+        Some(mgmt) => Ok(Resolved::Serial { mgmt, log }),
         // Exactly one tty on the port and no interface strings: a single-channel
         // target, or a board whose descriptors we cannot read. Use it, because
         // refusing here would block bring-up over a plain UART.
-        None if matching.len() == 1 => Ok(Resolved {
+        None if matching.len() == 1 => Ok(Resolved::Serial {
             mgmt: matching[0].dev.clone(),
             log: None,
         }),
@@ -140,7 +212,45 @@ fn from_udev_tree(port_path: &str) -> Result<Option<Resolved>> {
             log = Some(resolved);
         }
     }
-    Ok(mgmt.map(|mgmt| Resolved { mgmt, log }))
+    Ok(mgmt.map(|mgmt| Resolved::Serial { mgmt, log }))
+}
+
+/// Parse an ISO-TP node id, hex (`0x42`) or decimal (`66`).
+///
+/// **Standard 11-bit identifiers only.** The device builds its filters with
+/// `.std_id` (`firmware/balena-mcu/src/smp_can.c`) and its Kconfig declares
+/// `range 0x0 0x7ff`; the host socket does not set `CAN_EFF_FLAG` either. Both
+/// ends agree, and this is where a label that disagrees gets rejected — rather
+/// than being silently masked into a different id on the wire, which would
+/// present as an unexplained timeout.
+///
+/// The device replies on `node_id + 1`, so the top usable host id is `0x7fe`.
+fn parse_node_id(s: &str) -> Result<u32> {
+    let t = s.trim();
+    let parsed = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        Some(hex) => u32::from_str_radix(hex, 16),
+        None => t.parse::<u32>(),
+    };
+    let id = parsed.map_err(|_| {
+        anyhow::anyhow!("CAN node id {s:?} is not a number; expected e.g. `0x42` or `66`")
+    })?;
+    /// The largest standard CAN identifier.
+    const MAX_STD_ID: u32 = 0x7ff;
+    if id > MAX_STD_ID {
+        bail!(
+            "CAN node id {s:?} ({id:#x}) is larger than the maximum standard CAN \
+             identifier ({MAX_STD_ID:#x}). The firmware filters on 11-bit ids; \
+             extended ids are not part of the contract."
+        );
+    }
+    if id == MAX_STD_ID {
+        bail!(
+            "CAN node id {s:?} leaves no room for the device's reply id, which is \
+             one higher ({:#x}) and would exceed the 11-bit maximum ({MAX_STD_ID:#x})",
+            id + 1
+        );
+    }
+    Ok(id)
 }
 
 fn scan_ttys() -> Result<Vec<Candidate>> {
@@ -251,8 +361,13 @@ mod tests {
         // This is what lets a native_sim pty or the mock be addressed directly.
         let t = Target::parse("tty:/dev/null").unwrap();
         let r = resolve(&t).unwrap();
-        assert_eq!(r.mgmt, PathBuf::from("/dev/null"));
-        assert!(r.log.is_none());
+        assert_eq!(
+            r,
+            Resolved::Serial {
+                mgmt: PathBuf::from("/dev/null"),
+                log: None
+            }
+        );
     }
 
     #[test]
@@ -265,11 +380,78 @@ mod tests {
     }
 
     #[test]
-    fn can_targets_are_refused_with_a_reason() {
-        let t = Target::parse("can:vcan0/0x42").unwrap();
-        assert!(resolve(&t)
-            .unwrap_err()
-            .to_string()
-            .contains("not implemented"));
+    fn node_ids_parse_in_hex_and_decimal() {
+        assert_eq!(parse_node_id("0x42").unwrap(), 0x42);
+        assert_eq!(parse_node_id("0X42").unwrap(), 0x42);
+        assert_eq!(parse_node_id("66").unwrap(), 66);
+        assert_eq!(parse_node_id(" 0x42 ").unwrap(), 0x42);
+    }
+
+    #[test]
+    fn a_non_numeric_node_id_says_so() {
+        let e = parse_node_id("frobnicate").unwrap_err().to_string();
+        assert!(e.contains("not a number"), "{e}");
+    }
+
+    #[test]
+    fn an_extended_can_id_is_refused() {
+        // The firmware filters with .std_id and declares `range 0x0 0x7ff`, and
+        // the host socket sets no CAN_EFF_FLAG. An 11-bit-overflowing id would
+        // otherwise be masked on the wire and present as a bare timeout.
+        let e = parse_node_id("0x800").unwrap_err().to_string();
+        assert!(e.contains("maximum standard CAN identifier"), "{e}");
+        assert_eq!(parse_node_id("0x7fe").unwrap(), 0x7fe);
+    }
+
+    #[test]
+    fn a_node_id_with_no_room_for_the_reply_is_refused() {
+        // The device answers on node_id + 1, so the top standard id cannot be
+        // used as a host id however valid it looks on its own.
+        let e = parse_node_id("0x7ff").unwrap_err().to_string();
+        assert!(e.contains("no room for the device's reply"), "{e}");
+    }
+
+    #[test]
+    fn a_missing_can_interface_is_a_clear_error() {
+        // Names an interface that cannot plausibly exist, so this is stable on
+        // a machine that does have vcan0 configured.
+        let t = Target::parse("can:definitelynotaniface/0x42").unwrap();
+        let e = resolve(&t).unwrap_err().to_string();
+        assert!(e.contains("no network interface named"), "{e}");
+        // The remedy is in the message: this is the error a first-time user
+        // hits before `modprobe vcan`, and it should not need a web search.
+        assert!(e.contains("modprobe vcan"), "{e}");
+    }
+
+    #[test]
+    fn channel_counting_is_uniform_across_transports() {
+        let serial = Resolved::Serial {
+            mgmt: PathBuf::from("/dev/ttyACM0"),
+            log: None,
+        };
+        let can = Resolved::Can {
+            iface: "vcan0".into(),
+            node_id: 0x42,
+            log: None,
+        };
+        assert_eq!(serial.channels(), 1);
+        assert_eq!(can.channels(), 1);
+
+        // A CAN target with an explicit serial log target is a real
+        // arrangement: managed over the bus, console back over a wire.
+        let mut can = can;
+        can.set_log(PathBuf::from("/dev/ttyACM1"));
+        assert_eq!(can.channels(), 2);
+        assert_eq!(can.log_path(), Some(Path::new("/dev/ttyACM1")));
+    }
+
+    #[test]
+    fn a_can_target_displays_its_address_not_a_path() {
+        let can = Resolved::Can {
+            iface: "vcan0".into(),
+            node_id: 0x42,
+            log: None,
+        };
+        assert_eq!(can.to_string(), "can:vcan0/0x42");
     }
 }

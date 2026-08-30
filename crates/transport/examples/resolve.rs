@@ -8,9 +8,16 @@ fn main() {
     let label = std::env::args().nth(1).unwrap_or_else(|| "usb:3-4".into());
     match transport::Target::parse(&label).map(|t| transport::resolve::resolve(&t)) {
         Ok(Ok(r)) => {
+            use transport::resolve::Resolved;
             println!("{label}");
-            println!("  mgmt: {}", r.mgmt.display());
-            match r.log {
+            match &r {
+                Resolved::Serial { mgmt, .. } => println!("  mgmt: {}", mgmt.display()),
+                Resolved::Can { iface, node_id, .. } => println!(
+                    "  mgmt: {iface} isotp tx={node_id:#x} rx={:#x}",
+                    node_id + 1
+                ),
+            }
+            match r.log_path() {
                 Some(l) => println!("  log:  {}", l.display()),
                 None => println!("  log:  <none: single channel>"),
             }
