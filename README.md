@@ -71,6 +71,7 @@ Not built:
 | `crates/transport` | the transport seam: USB now, CAN later |
 | `crates/smp-mock` | SMP server with injectable faults, for testing error paths |
 | `docs/WALKTHROUGH.md` | build two releases and switch an MCU between them with `docker run` |
+| `docs/ROADMAP.md` | where this is and what is worth doing next |
 | `docs/ARCHITECTURE.md` | how it fits together, and why an OCI runtime rather than a service |
 | `docs/FIRMWARE_GUIDE.md` | getting a Zephyr app onto the platform: tree layout, build, traps |
 | `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics |
