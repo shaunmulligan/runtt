@@ -51,6 +51,8 @@ pub struct Server<T> {
     decoder: Decoder,
     /// Once set, stop answering: the emulation of a yanked cable.
     silent: bool,
+    /// What `describe` reports as the contract version.
+    contract: String,
     /// Application log output to emit on this same link, as a single-channel
     /// device does. `None` keeps the link SMP-only, which is the two-channel
     /// shape. Lines are emitted whole and between frames, which is what
@@ -71,10 +73,19 @@ impl<T: Read + Write> Server<T> {
             dev: Device::provisioned(fault),
             decoder: Decoder::new(),
             silent: false,
+            contract: "1.2.0".to_string(),
             chatter: None,
             next_chatter: std::time::Instant::now(),
             chatter_seq: 0,
         }
+    }
+
+    /// Claim a different contract version, to exercise the host's major-version
+    /// handling. A mismatched major must not block the upload -- otherwise a
+    /// contract bump could never be rolled out -- but must block the confirm.
+    pub fn with_contract(mut self, version: impl Into<String>) -> Self {
+        self.contract = version.into();
+        self
     }
 
     /// Emit `text` periodically as application log output on the same link.
@@ -246,7 +257,7 @@ impl<T: Read + Write> Server<T> {
                 map(vec![])
             }
             (codec::GROUP_PERUSER, DESCRIBE) => map(vec![
-                ("contract", Value::Text("1.2.0".into())),
+                ("contract", Value::Text(self.contract.clone())),
                 ("board", Value::Text("smp-mock".into())),
                 ("app_version", Value::Text("0.1.0".into())),
                 ("channels", Value::Integer(2.into())),

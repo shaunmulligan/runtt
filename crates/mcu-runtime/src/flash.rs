@@ -69,6 +69,58 @@ fn connect(path: &Path, demux_logs: bool) -> Result<ToolkitClient> {
     Ok(c)
 }
 
+/// Refuse to confirm an image whose contract this runtime does not implement.
+///
+/// Returning `Err` here leaves the image staged-but-unconfirmed, so MCUboot
+/// reverts to the previous firmware on the next boot. That is deliberately the
+/// same mechanism that protects against an image which cannot boot at all: the
+/// device is left running something that works, and the operator gets a clear
+/// message rather than a bricked board.
+///
+/// A device that does not answer describe is allowed through, matching how an
+/// unidentified device is treated before the upload. Silence is an absence of
+/// evidence; a mismatched version is a positive statement of incompatibility.
+fn confirm_contract_matches(c: &ToolkitClient) -> Result<()> {
+    let d = {
+        let _probe = c.probe_settings(PROBE_TIMEOUT, 1);
+        c.describe()
+    };
+    let d = match d {
+        Ok(d) => d,
+        Err(_) => {
+            tracing::warn!(
+                "the deployed image did not answer describe; confirming without a \
+                 contract check, as we did before the upload"
+            );
+            return Ok(());
+        }
+    };
+
+    let major = d
+        .contract
+        .split('.')
+        .next()
+        .and_then(|m| m.parse::<u32>().ok())
+        .with_context(|| {
+            format!(
+                "the deployed image reported an unparseable contract version {:?}",
+                d.contract
+            )
+        })?;
+
+    if major != CONTRACT_MAJOR {
+        bail!(
+            "refusing to confirm: the image now running speaks contract {} but this \
+             runtime implements major {CONTRACT_MAJOR}. It is staged but not confirmed, \
+             so the bootloader will revert to the previous firmware on the next boot and \
+             the device stays usable. Deploy an image built against contract major \
+             {CONTRACT_MAJOR}.",
+            d.contract
+        );
+    }
+    Ok(())
+}
+
 impl Deploy<'_> {
     /// Flash, verify and confirm. Returns a connected client for the resident loop.
     pub fn run(&self) -> Result<ToolkitClient> {
@@ -233,14 +285,21 @@ impl Deploy<'_> {
             );
         }
 
-        // It enumerated, spoke SMP and answered. Only now is confirming safe.
+        // It enumerated, spoke SMP and answered. One thing left: the image now
+        // running has to speak a contract this runtime implements. Checking it
+        // here rather than before the upload is what makes a major bump
+        // recoverable -- a wrong-contract image simply never gets confirmed, and
+        // MCUboot reverts it on the next boot, which is the same safety property
+        // the whole deploy sequence already rests on.
+        confirm_contract_matches(&c)?;
+
         c.set_state(&digest, true)
             .context("failed to confirm the running image")?;
         println!("mcu: image confirmed");
         Ok(c)
     }
 
-    /// Query the device's own account of itself, and refuse an incompatible one.
+    /// Query the device's own account of itself, and report what it says.
     ///
     /// Firmware predating the describe command is tolerated with a warning: the
     /// img and os groups are standard MCUmgr, so such a device is still
@@ -279,11 +338,27 @@ impl Deploy<'_> {
                 )
             })?;
         if major != CONTRACT_MAJOR {
-            bail!(
-                "contract mismatch: the device speaks contract {} but this runtime \
-                 implements major version {CONTRACT_MAJOR}. Refusing to write to it; \
-                 update whichever side is older.",
+            // Deliberately NOT fatal. Refusing to write here made a major
+            // contract bump unrecoverable in the field: the runtime would
+            // decline to talk to every board running the older firmware, and
+            // the only image that could fix them is the one it refused to
+            // upload. The exit was a truck roll and an SWD probe.
+            //
+            // Uploading is safe regardless, because the upload path is the
+            // plain MCUmgr image group and knows nothing about our contract.
+            // The check belongs at the confirm gate instead, where refusing has
+            // a safe outcome: the image is never confirmed, so MCUboot reverts
+            // it on the next boot. See confirm_contract_matches().
+            println!(
+                "mcu: device speaks contract {} but this runtime implements major \
+                 {CONTRACT_MAJOR}; deploying anyway, and the new image must report \
+                 major {CONTRACT_MAJOR} before it will be confirmed",
                 d.contract
+            );
+            tracing::warn!(
+                device_contract = %d.contract,
+                runtime_major = CONTRACT_MAJOR,
+                "contract major mismatch; proceeding so the contract can be upgraded"
             );
         }
 

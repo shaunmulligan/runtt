@@ -53,13 +53,28 @@ struct Rig {
 
 /// Stand up a mock on a pty and write an OCI bundle pointing at it.
 fn rig(name: &str, fault: Fault, firmware: &[u8]) -> Rig {
-    rig_with_chatter(name, fault, firmware, None)
+    rig_opts(name, fault, firmware, None, None)
+}
+
+fn rig_with_chatter(name: &str, fault: Fault, firmware: &[u8], chatter: Option<&str>) -> Rig {
+    rig_opts(name, fault, firmware, chatter, None)
+}
+
+/// A device claiming a contract version of our choosing.
+fn rig_with_contract(name: &str, firmware: &[u8], contract: &str) -> Rig {
+    rig_opts(name, Fault::None, firmware, None, Some(contract))
 }
 
 /// As `rig`, but the device also prints application log output on the same
 /// link — i.e. a single-channel target, which is the shape that exercises the
 /// runtime's log demux.
-fn rig_with_chatter(name: &str, fault: Fault, firmware: &[u8], chatter: Option<&str>) -> Rig {
+fn rig_opts(
+    name: &str,
+    fault: Fault,
+    firmware: &[u8],
+    chatter: Option<&str>,
+    contract: Option<&str>,
+) -> Rig {
     let (mut master, slave) = serialport::TTYPort::pair().expect("pty pair");
     let slave_path = slave.name().expect("pty slave name");
     master
@@ -67,6 +82,7 @@ fn rig_with_chatter(name: &str, fault: Fault, firmware: &[u8], chatter: Option<&
         .expect("set timeout");
 
     let chatter = chatter.map(str::to_owned);
+    let contract = contract.map(str::to_owned);
     let mock = std::thread::spawn(move || {
         // Hold the slave open for the whole test: dropping it tears down the
         // pty before the runtime can open it.
@@ -74,6 +90,9 @@ fn rig_with_chatter(name: &str, fault: Fault, firmware: &[u8], chatter: Option<&
         let mut srv = Server::new(master, fault);
         if let Some(text) = chatter {
             srv = srv.with_chatter(text);
+        }
+        if let Some(v) = contract {
+            srv = srv.with_contract(v);
         }
         let _ = srv.serve();
     });
@@ -481,8 +500,10 @@ fn proc_alive(pid: i32) -> bool {
 #[test]
 fn the_device_is_identified_before_anything_is_written() {
     let _seq = serial();
-    // describe runs before the upload, so a mismatched contract or a mis-cabled
-    // board is caught while the device is still untouched.
+    // describe runs before the upload, so the device's identity is on the record
+    // before anything is written. Note it no longer VETOES on a contract
+    // mismatch -- that moved to the confirm gate, see
+    // a_contract_mismatch_uploads_but_refuses_to_confirm.
     let rig = rig("identify", Fault::None, SIGNED_SMALL);
     let log = rig.create();
     assert!(rig.verb(&["start", &rig.id]).status.success());
@@ -570,6 +591,45 @@ fn a_single_channel_device_deploys_and_still_gets_its_logs() {
     assert!(
         !text.contains("\u{6}\u{9}"),
         "raw SMP framing bytes must never be printed as log output:\n{text}"
+    );
+    rig.cleanup();
+}
+
+/// A device speaking a contract major we do not implement must still ACCEPT the
+/// upload, and must NOT be confirmed.
+///
+/// This is what makes a contract bump rolloutable. Vetoing before the upload --
+/// which is what this used to do -- meant the runtime refused to talk to every
+/// board running older firmware, and the only image that could fix them was the
+/// one it refused to send. The exit was a truck roll and an SWD probe.
+///
+/// Refusing at the confirm gate is safe by construction: the image is staged but
+/// never confirmed, so the bootloader reverts to the working firmware.
+#[test]
+fn a_contract_mismatch_uploads_but_refuses_to_confirm() {
+    let _seq = serial();
+    let rig = rig_with_contract("contractskew", SIGNED_SMALL, "9.0.0");
+    let log = rig.create();
+    assert!(rig.verb(&["start", &rig.id]).status.success());
+
+    let text = rig.wait_for(&log, "refusing to confirm", Duration::from_secs(60));
+
+    // The upload must have happened: that is the whole point.
+    assert!(
+        text.contains("uploading"),
+        "a contract mismatch must not block the upload, or the contract can never \
+         be upgraded in the field:\n{text}"
+    );
+    // And it must NOT have been confirmed.
+    assert!(
+        !text.contains("image confirmed"),
+        "an image speaking an unimplemented contract must never be confirmed:\n{text}"
+    );
+    // The message has to name the consequence, not just the fault.
+    assert!(
+        text.contains("revert"),
+        "the error should say the bootloader will revert, so the operator knows \
+         the device is still usable:\n{text}"
     );
     rig.cleanup();
 }

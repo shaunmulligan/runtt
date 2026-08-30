@@ -117,12 +117,19 @@ fn the_mock_declares_the_documented_contract() {
     // The mock stands in for a device in every integration test. If it advertises
     // a contract the runtime would refuse -- or worse, one it would wrongly
     // accept -- those tests stop meaning anything.
+    //
+    // The version is the mock's DEFAULT rather than a literal in the describe
+    // payload, because with_contract() can override it to exercise the host's
+    // major-version handling. What matters is that a mock nobody has configured
+    // speaks the documented contract.
     let server = read("crates/smp-mock/src/server.rs");
-    let want = format!("Value::Text(\"{}\".into())", documented_version());
+    let want = format!("contract: \"{}\".to_string()", documented_version());
     assert!(
         server.contains(&want),
-        "smp-mock should report contract {} over describe, like the document says",
-        documented_version()
+        "smp-mock should DEFAULT to contract {} over describe, like the document \
+         says; found no `{}` in its initialiser",
+        documented_version(),
+        want
     );
 }
 
