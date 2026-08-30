@@ -129,6 +129,12 @@ framing markers, which raw SMP over ISO-TP does not have, so a CAN target has
 management and no log channel until there is a second ISO-TP address or an
 SMP-based log group.
 
+**Hardware:** two CAN boards are on order -- a Waveshare ESP32-S3 (TWAI, paired
+with an SN65HVD230 we already have) and an Adafruit RP2040 CAN Feather (MCP25625,
+controller and transceiver onboard). Deliberately two *different* controllers, so
+the ISO-TP layer is proven controller-agnostic rather than merely intended to be.
+See [HARDWARE_TARGETS.md](HARDWARE_TARGETS.md) for what each needs before it boots.
+
 **Sequencing:** the transport crate is where this lands, so the repo split
 clarifies its boundary -- but it did not need to wait, and a `vcan` gate in CI is
 now a cheap and genuinely strong artefact.
