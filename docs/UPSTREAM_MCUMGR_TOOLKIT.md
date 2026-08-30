@@ -4,8 +4,20 @@ Two small changes to [`mcumgr-toolkit`](https://crates.io/crates/mcumgr-toolkit)
 0.16.0, carried locally until they land upstream. **This is for you to submit** —
 patch, reasoning and a draft PR description are below.
 
-Patch: `docs/patches/mcumgr-toolkit-external-transports.patch`
+Patch: `docs/patches/mcumgr-toolkit-external-transports.patch` — 86 lines against
+0.16.0 as published, touching `src/client.rs` and `src/transport/mod.rs` and
+nothing else. It carries a commit message and applies with `patch -p1` inside an
+unpacked 0.16.0. Verified by applying it to the pristine crates.io source and
+confirming the result is byte-identical to the vendored tree.
+
 Vendored tree: `third_party/mcumgr-toolkit/` (0.16.0 as published, plus one commit)
+
+To regenerate after changing the vendored tree:
+
+```bash
+PRISTINE=~/.cargo/registry/src/index.crates.io-*/mcumgr-toolkit-0.16.0
+diff -ruN "$PRISTINE" third_party/mcumgr-toolkit   # then re-add the message header
+```
 
 ---
 
