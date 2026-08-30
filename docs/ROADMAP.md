@@ -100,9 +100,38 @@ side, plus `crates/transport/src/can.rs` on the host.
 That is why `transport` was made a separate crate from the beginning. The seam is
 already there; the work is filling it.
 
-**Sequencing:** do CAN *after* the repo split, because the transport crate is
-where it lands and the split clarifies its boundary. But there is no reason to
-wait for hardware, and a `vcan` gate in CI would be a genuinely strong artefact.
+### Status: working over `vcan`, 2026-08-30
+
+The loop is closed. native_sim firmware on `zcan0` and the runtime on `vcan0`
+exchange the full contract with no hardware involved:
+
+```
+$ cargo run -p smp-client --example can-ping -- vcan0 0x42
+  can:vcan0/0x42
+  echo -> "balena"
+  image list -> no images
+  describe -> board: "native_sim/native/64", contract: "1.2.0", channels: 2
+```
+
+Host setup, once per machine:
+
+```bash
+sudo modprobe vcan can-isotp
+sudo ip link add dev vcan0 type vcan
+sudo ip link set vcan0 up                        # device first: `set up vcan0` parses badly
+sudo ip link property add dev vcan0 altname zcan0 # native_sim hardcodes "zcan0"
+```
+
+Still to do: wire `Target::Can` through `resolve()` and give the runtime a way to
+open one, which needs `Resolved` to stop being path-shaped. And **logs over CAN
+are unsolved** -- the single-channel demux keys off the console transport's
+framing markers, which raw SMP over ISO-TP does not have, so a CAN target has
+management and no log channel until there is a second ISO-TP address or an
+SMP-based log group.
+
+**Sequencing:** the transport crate is where this lands, so the repo split
+clarifies its boundary -- but it did not need to wait, and a `vcan` gate in CI is
+now a cheap and genuinely strong artefact.
 
 ---
 

@@ -48,6 +48,23 @@ impl ToolkitClient {
         Ok(Self { inner, timeout })
     }
 
+    /// Wrap a transport that is not a byte stream.
+    ///
+    /// The serial constructor above takes a `Read + Write` pipe and lets
+    /// `mcumgr-toolkit` apply the console framing. A datagram bearer such as
+    /// ISO-TP on CAN already delivers whole messages, so it implements
+    /// `Transport` directly and carries raw SMP frames instead.
+    pub fn from_transport<T>(transport: T, timeout: Duration) -> Result<Self>
+    where
+        T: mcumgr_toolkit::transport::Transport + Send + 'static,
+    {
+        let inner = MCUmgrClient::new_from_transport(transport);
+        inner
+            .set_timeout(timeout)
+            .map_err(|e| anyhow::anyhow!("failed to set SMP timeout: {e}"))?;
+        Ok(Self { inner, timeout })
+    }
+
     /// Ask the device for its own buffer sizes and size frames accordingly,
     /// rather than assuming Zephyr's default. Falls back silently: a device
     /// without the MCUmgr parameters command is not an error.
