@@ -331,6 +331,84 @@ A CAN target may instead name a serial console explicitly with
 `io.balena.mcu.log-target: tty:/dev/ttyACM0`, which overrides the bus channel —
 a board managed over CAN whose console comes back over a wire.
 
+### Sharing the bus with application data
+
+**The runtime does not own the CAN interface, and application code may use it at
+the same time.** This is the one place CAN is materially simpler than USB: a
+`can0` is a *network interface*, not a character device, so any number of sockets
+may bind to it concurrently, each with its own kernel-side filters. CAN is a
+broadcast bus — every node already sees every frame and filters locally — so
+there is nothing to contend for. Contrast `docs/MICROROS.md`, which exists
+because sharing one `/dev/ttyACM*` needed a careful argument.
+
+Verified on `vcan0` with four concurrent sockets — the runtime's ISO-TP socket
+carrying SMP, its raw socket carrying the console, and an application pair
+exchanging their own ids — during a live deploy:
+
+```
+SMP   echo -> "balena";  describe -> contract 1.2.0
+APP   sent=179 received=179          <- no loss
+LOGS  console lines streaming throughout
+```
+
+**The application's own protocol is not our business.** Raw frames, ISO-TP,
+CANopen, anything. The contract constrains identifiers and nothing else.
+
+#### What an application must respect
+
+| Identifiers | |
+|---|---|
+| `node_id`, `node_id + 1`, `node_id + 2` | **reserved** — see the table above |
+| everything else in `0x000`–`0x7ff` | the application's |
+
+With the default `0x42` that leaves all of `0x000`–`0x041` and `0x045`–`0x7ff`.
+
+#### The container needs host networking
+
+A CAN interface lives in a network namespace, so a container in its own namespace
+cannot see it. This is not a permissions problem and `--device` or `--privileged`
+will not fix it:
+
+```console
+$ docker run --network host alpine ip link | grep can
+18: vcan0: <NOARP,UP,LOWER_UP> mtu 72 qdisc noqueue state UNKNOWN qlen 1000
+
+$ docker run alpine ip link | grep can        # bridge networking: nothing
+```
+
+So an application container that talks to the MCU needs `--network host`. Moving
+the CAN device into the container's namespace instead would hide it from the
+runtime, so host networking is the arrangement that works for both.
+
+#### Arbitration is a design lever
+
+CAN arbitration is **lowest identifier wins**, which makes the choice of
+application ids a scheduling decision rather than an arbitrary one:
+
+* Latency-critical application traffic — motor commands, an e-stop — belongs
+  **below** `node_id`, so it preempts firmware management traffic.
+* If upload speed matters more than control-loop jitter, put it above.
+
+An application at `0x100` with a node at `0x42` yields to management, so a
+firmware upload will visibly slow it. If that is the wrong trade for a given
+robot, move the application ids down or the node id up. Bus bandwidth is shared
+either way: an upload saturates the bus and application traffic gets what
+arbitration leaves it.
+
+#### On the device
+
+The Zephyr application adds its own filters with `can_add_rx_filter()` on the
+same controller the SMP transport uses; the driver multiplexes. The budget is 16
+concurrent filters by default on both supported controllers
+(`CAN_MCP2515_MAX_FILTERS`, `CAN_SJA1000_MAX_FILTERS`), each raisable to 32.
+
+One asymmetry between controllers is worth knowing. Zephyr's SJA1000 driver — the
+ESP32 TWAI — notes that the chip *"only supports one full-width RX filter,
+filtering of received CAN frames are done in software"*, so on ESP32 a busy bus
+costs MCU cycles for every frame whether or not the application wants it. The
+MCP25625 on the Adafruit Feather has hardware filters. Neither is a correctness
+issue; it is a CPU budget one.
+
 How the label reaches the runtime is out of scope here: it arrives as an OCI
 annotation on the container spec, and who puts it there is the engine's business.
 
