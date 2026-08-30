@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 
+pub mod can;
 pub mod demux;
 pub mod describe;
 pub mod mcuboot;

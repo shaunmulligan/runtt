@@ -34,3 +34,17 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 # Pinned exactly: young crate, single maintainer. See docs/WIRE_CONTRACT.md.
 mcumgr-toolkit = "=0.16.0"
+
+# Vendored so we can carry ONE addition: MCUmgrClient::new_from_transport.
+#
+# Every upstream constructor is tied to a concrete transport type and the
+# client's connection field is private, so a Transport implementation living
+# outside the crate -- ours is SMP over ISO-TP on CAN -- cannot be handed to a
+# client at all. Connection::new is already public and generic; the patch just
+# exposes the same thing one level up.
+#
+# The diff is one import and one method. It is submitted upstream as
+# docs/UPSTREAM_MCUMGR_TOOLKIT.md; delete this block and the vendored tree once
+# it lands in a release.
+[patch.crates-io]
+mcumgr-toolkit = { path = "third_party/mcumgr-toolkit" }

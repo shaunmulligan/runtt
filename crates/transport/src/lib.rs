@@ -7,6 +7,7 @@
 use anyhow::Result;
 use std::io::{Read, Write};
 
+pub mod can;
 pub mod resolve;
 pub mod usb;
 
