@@ -292,6 +292,51 @@ io.balena.mcu.target: can:vcan0/0x42     # SocketCAN interface and ISO-TP node i
 An unprefixed label is an **error**, not a guess. `io.balena.mcu.skip-if-same-hash`
 (default on) suppresses redeploying an image the device already runs, confirmed.
 
+### Board identity, and why the node id is not a build setting
+
+**A board's CAN node id is read from flash at boot, not compiled in.** This is a
+contract-level fact rather than an implementation detail, because the alternative
+breaks the delivery model: firmware ships as an OCI image, so a per-board Kconfig
+symbol makes the *service image* per-board, and a fleet of N boards becomes N
+images in the registry with deltas computed against the wrong baselines.
+
+The record lives at **offset 0 of `storage_partition`**, which every supported
+board declares upstream and which sits **outside both MCUboot slots** — so a
+firmware update cannot cost a board its address. It is not code and is
+deliberately not covered by MCUboot's signature; nothing in it is trusted for
+anything but addressing.
+
+32 bytes, little-endian, no implicit padding:
+
+| Offset | Size | Field | |
+|---|---|---|---|
+| 0 | 4 | `magic` | `0x616e6c62` — `"blna"` |
+| 4 | 1 | `version` | `1` |
+| 5 | 3 | — | reserved, zero |
+| 8 | 2 | `can_node_id` | `0xffff` = unassigned |
+| 10 | 2 | — | reserved, zero |
+| 12 | 16 | `serial` | NUL-padded ASCII; all-zero = none |
+| 28 | 4 | `crc` | CRC32-IEEE over bytes 0..27 |
+
+Extend only by claiming reserved space and bumping `version`; never by
+reordering. Write one with `scripts/make-identity.py`.
+
+**Absent and damaged are different, and are handled differently:**
+
+* **No record** (erased flash, magic mismatch) — the board uses its built-in
+  defaults. This is the factory state, and falling back is required: a fresh
+  board must still answer `describe` so the idle app can report itself.
+* **A record that is present but fails its CRC or version check** — a CAN
+  transport **refuses to bind**. Falling back would put the board on the default
+  id, where a correctly provisioned neighbour may already be answering, and two
+  ISO-TP responders on one identifier is a failure that damages a working board.
+  One board missing is a better symptom than two boards fighting. Recovery is the
+  same SWD path provisioning already uses.
+
+`describe` reports `provisioned`, `serial` where assigned, and `can_node_id` — the
+id the board is *actually* answering on. Firmware predating these fields omits
+them, which a host must read as "unknown" rather than "no".
+
 ### CAN addressing: one number, three identifiers
 
 A `can:` label carries a single node id, and the device derives two more from it:

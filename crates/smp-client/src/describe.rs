@@ -44,6 +44,20 @@ pub struct Describe {
     /// can distinguish "healthy" from "does not report health".
     #[serde(default)]
     pub app_healthy: Option<bool>,
+
+    /// Whether the board carries a valid identity record in flash. Absent on
+    /// firmware predating the field -- treat that as "unknown", not "no".
+    #[serde(default)]
+    pub provisioned: Option<bool>,
+
+    /// The board serial from its identity record, when one is assigned.
+    #[serde(default)]
+    pub serial: Option<String>,
+
+    /// The CAN id the board is ACTUALLY answering on, which need not be the one
+    /// the placement label named -- see the note in `flash.rs`.
+    #[serde(default)]
+    pub can_node_id: Option<u32>,
 }
 
 /// An empty CBOR map: the request carries no arguments.

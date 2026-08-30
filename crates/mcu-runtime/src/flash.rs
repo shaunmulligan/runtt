@@ -401,6 +401,25 @@ impl Deploy<'_> {
             );
         }
 
+        // Identity, when the board carries it. Deliberately NOT a mismatch check
+        // against the placement label: if the label named a different id we would
+        // not be talking to this board at all, so a comparison here could never
+        // fail. Its value is telling an operator which board they actually
+        // reached -- useful after provisioning, and on a bus of several.
+        if let Some(serial) = d.serial.as_deref() {
+            println!("mcu: board serial {serial}");
+        }
+        if d.provisioned == Some(false) {
+            // Not an error. Worth saying because on CAN it means the board is
+            // answering on the built-in default, which is fine for one board and
+            // a collision waiting to happen for two.
+            println!(
+                "mcu: board has no identity record; it is using built-in defaults. \
+                 Write one with scripts/make-identity.py before putting a second \
+                 board on the same bus."
+            );
+        }
+
         if d.idle == Some(true) {
             // A distinct and reassuring state: the board is provisioned and
             // working, it simply has not been given firmware yet. Without this

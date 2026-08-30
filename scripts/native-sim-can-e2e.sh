@@ -29,7 +29,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
 IFACE="${IFACE:-vcan0}"
-NODE_ID="${NODE_ID:-0x42}"
+# DELIBERATELY NOT the firmware's compile-time default of 0x42. The whole point
+# of the identity record is that one image serves a fleet, so the gate has to run
+# through the provisioned path -- if this matched the built-in default, the test
+# would pass just as well with the record ignored entirely.
+NODE_ID="${NODE_ID:-0x45}"
 RUNTIME="${RUNTIME:-$REPO/target/debug/mcu-runtime}"
 BUILD_DIR="${BUILD_DIR:-$REPO/build-can}"
 SIM="${SIM:-$BUILD_DIR/zephyr/zephyr.exe}"
@@ -93,6 +97,20 @@ cat > "$WORK/bundle/config.json" <<JSON
 }
 JSON
 
+# --- provision the board before it boots ------------------------------------
+# Writes an identity record into storage_partition, which on native_sim is at
+# 0xfc000. This is the same 32 bytes make-identity.py would put on real hardware
+# over SWD; only the delivery differs.
+./scripts/make-identity.py --can-node-id "$NODE_ID" --serial sim-gate-01 \
+  -o "$WORK/identity.bin" 2>/dev/null
+python3 - "$WORK/flash.bin" "$WORK/identity.bin" <<'PY'
+import sys
+flash = bytearray(b'\xff' * (2 * 1024 * 1024))
+flash[0xfc000:0xfc000 + 32] = open(sys.argv[2], 'rb').read()
+open(sys.argv[1], 'wb').write(flash)
+PY
+ok "provisioned the simulated board with node id $NODE_ID"
+
 # --- start the simulator ----------------------------------------------------
 # No --flash_erase, for the same reason as the serial gate: `os reset` re-execs
 # preserving argv, so it would wipe the flash on every reboot.
@@ -102,6 +120,15 @@ for _ in $(seq 1 50); do grep -q "SMP over ISO-TP" "$WORK/sim.out" 2>/dev/null &
 grep -q "SMP over ISO-TP" "$WORK/sim.out" \
   || fail "the simulator never announced its CAN transport: $(head -c 300 "$WORK/sim.out")"
 ok "simulator listening on the bus: $(grep -o 'receiving on .*' "$WORK/sim.out" | head -1)"
+
+# The firmware must be on the PROVISIONED id, not the one it was compiled with.
+# This is the assertion that makes the record load-bearing rather than decorative.
+grep -q "receiving on $NODE_ID" "$WORK/sim.out" \
+  || fail "the board is not on its provisioned id $NODE_ID -- the identity record was \
+not read. Compiled default is 0x42; got: $(grep -o 'receiving on .*' "$WORK/sim.out" | head -1)"
+grep -q "provisioned: can node id $NODE_ID" "$WORK/sim.out" \
+  || fail "the firmware did not report reading an identity record"
+ok "board took its node id from flash, not from the build"
 
 # --- the console must arrive on the bus, not only on the simulator's stdout --
 # Asserting on the simulator's own stdout would pass even with the CAN log
