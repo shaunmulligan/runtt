@@ -171,7 +171,7 @@ pub fn run(
         .with_context(|| format!("could not resolve target {target}"))?;
     tracing::info!(
         mgmt = %resolved,
-        log = ?resolved.log_path().map(|p| p.display().to_string()),
+        log = ?resolved.log_source(),
         "resolved target"
     );
 
@@ -195,19 +195,10 @@ pub fn run(
         }
     }
 
-    if resolved.log_path().is_none() {
-        // Not a failure, but the reason differs by transport and the operator
-        // should not have to guess which one they are looking at.
-        match resolved {
-            transport::resolve::Resolved::Serial { .. } => println!(
-                "mcu: single channel; application logs are demultiplexed from the management link"
-            ),
-            transport::resolve::Resolved::Can { .. } => println!(
-                "mcu: CAN target with no log channel; \
-                 set the {} annotation to a tty: device to get application logs",
-                crate::annotations::SPEC_LOG_TARGET
-            ),
-        }
+    if resolved.log_source().is_none() {
+        // Not a failure: single-channel targets and probe-UART bring-up both
+        // look like this. Say so, because silence here is confusing.
+        println!("mcu: single channel; application logs are demultiplexed from the management link");
     }
 
     let deploy = crate::flash::Deploy {
@@ -219,6 +210,6 @@ pub fn run(
     let client = deploy.run()?;
 
     let stop = || SIGNAL_RECEIVED.load(Ordering::SeqCst) != 0;
-    crate::flash::stay_resident(client, resolved.log_path(), &stop)?;
+    crate::flash::stay_resident(client, resolved.log_source(), &stop)?;
     Ok(0)
 }

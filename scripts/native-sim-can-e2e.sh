@@ -11,10 +11,18 @@
 #   * the image uploads over SMP-on-ISO-TP and physically lands in slot 1
 #   * marking it TEST writes the MCUboot trailer (swap type becomes "test")
 #   * `os reset` re-execs the simulator and it comes back on the bus
+#   * the device's console arrives as raw frames on node_id + 2
 #
 # It does NOT assert swap or confirm, for the same reason the serial gate does
-# not: MCUboot cannot chain-load on native_sim. Nor does it assert log output --
-# a CAN target has no log channel (see docs/HARDWARE_TARGETS.md).
+# not: MCUboot cannot chain-load on native_sim.
+#
+# One further gap, stated because it is easy to misread this script as covering
+# it: the log assertion reads the bus directly, via the can-logs example, NOT
+# through the runtime's own pump. The runtime only pumps logs from
+# stay_resident(), which is reached after a successful confirm -- unreachable
+# here without a bootloader. So this proves the DEVICE emits and the HOST
+# transport receives; the runtime's wiring between them is covered by unit tests
+# and by hardware. The serial gate has exactly the same gap for the same reason.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -94,6 +102,22 @@ for _ in $(seq 1 50); do grep -q "SMP over ISO-TP" "$WORK/sim.out" 2>/dev/null &
 grep -q "SMP over ISO-TP" "$WORK/sim.out" \
   || fail "the simulator never announced its CAN transport: $(head -c 300 "$WORK/sim.out")"
 ok "simulator listening on the bus: $(grep -o 'receiving on .*' "$WORK/sim.out" | head -1)"
+
+# --- the console must arrive on the bus, not only on the simulator's stdout --
+# Asserting on the simulator's own stdout would pass even with the CAN log
+# backend entirely broken, because native_sim mirrors the console there and that
+# cannot be disabled from Kconfig. This is the assertion that actually failed
+# while the backend was emitting one frame per character.
+LOG_ID=$(printf '0x%x' $(( NODE_ID + 2 )))
+timeout 6 cargo run -q -p transport --example can-logs -- "$IFACE" "$NODE_ID" \
+  > "$WORK/canlog.txt" 2>/dev/null || true
+# Match a RECURRING line, not the boot banner. A raw CAN channel has no backlog:
+# frames sent before this listener attached are gone, by design, because the
+# device must never block waiting for someone to listen. Asserting on a one-shot
+# startup message would be asserting on a race.
+grep -q "alive, tick" "$WORK/canlog.txt" \
+  || fail "no application output on CAN id $LOG_ID (got: $(head -c 200 "$WORK/canlog.txt"))"
+ok "application logs arrive as raw CAN frames on $LOG_ID"
 
 # --- deploy -----------------------------------------------------------------
 STATE="$WORK/state"

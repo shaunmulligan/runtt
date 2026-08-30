@@ -141,12 +141,22 @@ $ ./scripts/native-sim-can-e2e.sh
 
 It gates in CI alongside the existing native_sim jobs.
 
-**Logs over CAN remain unsolved for the bus itself.** The single-channel demux
-keys off the console transport's framing markers, which raw SMP over ISO-TP does
-not have. There is now a working half-answer: a CAN target accepts an explicit
-`io.balena.mcu.log-target` naming a `tty:` device, so a board managed over the bus
-can still return its console over a wire. A log channel carried *on* the bus needs
-either a second ISO-TP address or an SMP-based log group, and is not built.
+**Logs over CAN work too**, on a third id (`node_id + 2`) as raw frames rather
+than ISO-TP -- ISO-TP waits for the receiver's flow control, and a log backend
+that blocks deadlocks boot. The channel is lossy under backpressure and has no
+backlog, both deliberately; see docs/WIRE_CONTRACT.md for what a consumer has to
+accept. An explicit `io.balena.mcu.log-target` still overrides it, for a board
+managed over the bus whose console comes back over a wire.
+
+Two things cost real time here and are worth carrying forward:
+
+* Under `CONFIG_LOG_MODE_IMMEDIATE` the log core hands a backend **one byte per
+  call**. Emitting a frame per call meant one CAN frame per character, which
+  overran the queue on the first line. The backend batches into full frames now.
+* `can_send()` with `K_NO_WAIT` fails with `-EAGAIN` whenever no mailbox is free,
+  and a mailbox frees only once the frame is on the wire -- so sending inline from
+  the log path discarded nearly everything. A queue plus a sender thread moves the
+  lossy boundary to somewhere that means what it says.
 
 **Hardware:** two CAN boards are on order -- a Waveshare ESP32-S3 (TWAI, paired
 with an SN65HVD230 we already have) and an Adafruit RP2040 CAN Feather (MCP25625,

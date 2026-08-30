@@ -219,3 +219,201 @@ mod tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Logs
+// ---------------------------------------------------------------------------
+
+/// `CAN_RAW`, the protocol number from `linux/can.h`.
+const CAN_RAW: libc::c_int = 1;
+/// `SOL_CAN_BASE + CAN_RAW`, the socket option level for raw CAN.
+const SOL_CAN_RAW: libc::c_int = 100 + CAN_RAW;
+/// `CAN_RAW_FILTER`, from `linux/can/raw.h`.
+const CAN_RAW_FILTER: libc::c_int = 1;
+/// `CAN_SFF_MASK` — match the full 11-bit standard identifier.
+const CAN_SFF_MASK: u32 = 0x0000_07ff;
+
+/// `struct sockaddr_can` in its plain form. Raw sockets bind by interface index
+/// and ignore the address union, so the two id words are present for layout only.
+#[repr(C)]
+#[derive(Default)]
+struct SockAddrCanRaw {
+    can_family: u16,
+    _pad: u16,
+    can_ifindex: i32,
+    _unused: [u32; 2],
+}
+
+/// `struct can_filter`, from `linux/can.h`.
+#[repr(C)]
+struct CanFilter {
+    can_id: u32,
+    can_mask: u32,
+}
+
+/// `struct can_frame`, from `linux/can.h`. Sixteen bytes: the id, a length and
+/// three reserved bytes, then eight of payload aligned to eight.
+#[repr(C)]
+#[derive(Default)]
+struct CanFrame {
+    can_id: u32,
+    len: u8,
+    _pad: u8,
+    _res0: u8,
+    _len8_dlc: u8,
+    data: [u8; 8],
+}
+
+/// The device's console output, arriving as raw CAN frames.
+///
+/// **Raw frames rather than ISO-TP, deliberately.** ISO-TP's flow control means
+/// the sender waits for the receiver to say go, so a device logging to an ISO-TP
+/// socket with nobody listening would block — and a blocking log backend
+/// deadlocks boot. Raw frames are fire-and-forget: the device drops what it
+/// cannot send, and losing log lines is enormously better than not booting.
+///
+/// Lossy under backpressure is therefore the *design*, not a defect. A dropped
+/// frame shows up as a mangled line, which is honest about what happened.
+///
+/// Ordering is safe without a sequence number: CAN delivers frames of one
+/// identifier from one sender in order, and this id has exactly one sender.
+///
+/// The log id also sits *above* the two management ids, which on CAN means lower
+/// arbitration priority — so a firmware upload in progress wins the bus against
+/// chatty logs rather than being slowed by them.
+pub struct CanLogReader {
+    fd: OwnedFd,
+    /// Payload left over when the caller's buffer was smaller than a frame.
+    pending: Vec<u8>,
+    /// Read cursor into `pending`.
+    at: usize,
+    name: String,
+}
+
+impl CanLogReader {
+    /// Listen for log frames on `iface` carrying identifier `id`.
+    pub fn open(iface: &str, id: u32, timeout: Duration) -> Result<Self> {
+        let ifindex = if_nametoindex(iface)
+            .with_context(|| format!("no such CAN interface {iface:?}"))?;
+
+        // SAFETY: a plain socket(2) with constants from linux/can.h.
+        let fd = unsafe { libc::socket(AF_CAN, libc::SOCK_RAW, CAN_RAW) };
+        if fd < 0 {
+            return Err(anyhow::Error::new(std::io::Error::last_os_error())
+                .context("failed to open a raw CAN socket"));
+        }
+        // SAFETY: fd is a fresh, valid descriptor we have just checked.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+
+        let addr = SockAddrCanRaw {
+            can_family: AF_CAN as u16,
+            _pad: 0,
+            can_ifindex: ifindex,
+            _unused: [0; 2],
+        };
+        // SAFETY: addr is a correctly shaped sockaddr_can living for the call.
+        let rc = unsafe {
+            libc::bind(
+                fd.as_raw_fd(),
+                (&addr as *const SockAddrCanRaw).cast(),
+                std::mem::size_of::<SockAddrCanRaw>() as libc::socklen_t,
+            )
+        };
+        if rc < 0 {
+            return Err(anyhow::Error::new(std::io::Error::last_os_error())
+                .context(format!("failed to bind a raw CAN socket to {iface}")));
+        }
+
+        // Filter in the kernel rather than in userspace: on a busy bus this
+        // socket would otherwise wake for every management frame as well.
+        //
+        // AFTER bind, not before. A filter set on an unbound raw CAN socket does
+        // not survive the bind, so the socket ends up with the default
+        // accept-everything filter -- or, as observed here, silently matching
+        // nothing. This ordering is load-bearing.
+        let filter = CanFilter {
+            can_id: id,
+            can_mask: CAN_SFF_MASK,
+        };
+        // SAFETY: filter is a correctly shaped can_filter living for the call.
+        let rc = unsafe {
+            libc::setsockopt(
+                fd.as_raw_fd(),
+                SOL_CAN_RAW,
+                CAN_RAW_FILTER,
+                (&filter as *const CanFilter).cast(),
+                std::mem::size_of::<CanFilter>() as libc::socklen_t,
+            )
+        };
+        if rc < 0 {
+            return Err(anyhow::Error::new(std::io::Error::last_os_error())
+                .context(format!("failed to filter raw CAN for id {id:#x}")));
+        }
+
+        let r = Self {
+            fd,
+            pending: Vec::new(),
+            at: 0,
+            name: format!("can:{iface} log id {id:#x}"),
+        };
+        r.set_read_timeout(timeout)?;
+        Ok(r)
+    }
+
+    fn set_read_timeout(&self, timeout: Duration) -> Result<()> {
+        let tv = libc::timeval {
+            tv_sec: timeout.as_secs() as libc::time_t,
+            tv_usec: timeout.subsec_micros() as libc::suseconds_t,
+        };
+        // SAFETY: tv is a valid timeval for the lifetime of the call.
+        let rc = unsafe {
+            libc::setsockopt(
+                self.fd.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RCVTIMEO,
+                (&tv as *const libc::timeval).cast(),
+                std::mem::size_of::<libc::timeval>() as libc::socklen_t,
+            )
+        };
+        if rc < 0 {
+            return Err(anyhow::Error::new(std::io::Error::last_os_error())
+                .context("failed to set the raw CAN receive timeout"));
+        }
+        Ok(())
+    }
+
+    pub fn describe(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl std::io::Read for CanLogReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        // Drain whatever a previous frame left over before reading another.
+        if self.at == self.pending.len() {
+            let mut frame = CanFrame::default();
+            // SAFETY: reading at most sizeof(can_frame) into a live can_frame.
+            let n = unsafe {
+                libc::read(
+                    self.fd.as_raw_fd(),
+                    (&mut frame as *mut CanFrame).cast(),
+                    std::mem::size_of::<CanFrame>(),
+                )
+            };
+            if n < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let len = (frame.len as usize).min(frame.data.len());
+            self.pending.clear();
+            self.pending.extend_from_slice(&frame.data[..len]);
+            self.at = 0;
+        }
+        let n = (self.pending.len() - self.at).min(buf.len());
+        buf[..n].copy_from_slice(&self.pending[self.at..self.at + n]);
+        self.at += n;
+        Ok(n)
+    }
+}

@@ -286,11 +286,50 @@ existing labels:
 ```
 io.balena.mcu.target: usb:3-6            # kernel USB port path
 io.balena.mcu.target: tty:/dev/ttyACM0   # bare serial, a simulator's pty, a probe's bridge
-io.balena.mcu.target: can:vcan0/0x42     # named, not implemented yet
+io.balena.mcu.target: can:vcan0/0x42     # SocketCAN interface and ISO-TP node id
 ```
 
 An unprefixed label is an **error**, not a guess. `io.balena.mcu.skip-if-same-hash`
 (default on) suppresses redeploying an image the device already runs, confirmed.
+
+### CAN addressing: one number, three identifiers
+
+A `can:` label carries a single node id, and the device derives two more from it:
+
+| Identifier | Direction | Carries |
+|---|---|---|
+| `node_id` | host → device | SMP requests, over ISO-TP |
+| `node_id + 1` | device → host | SMP responses, over ISO-TP |
+| `node_id + 2` | device → host | the application console, as **raw** CAN frames |
+
+One number rather than three settings, so the label cannot drift out of step with
+the firmware. **All three are reserved whether or not the firmware was built with
+`CONFIG_BALENA_MCU_CAN_LOG`**, so enabling logging later cannot collide with a
+neighbour already on the bus. Give each board on a bus an id at least three apart.
+
+Standard 11-bit identifiers only — the device filters with `.std_id` and the host
+sets no `CAN_EFF_FLAG`. The usable range is therefore `0x000`–`0x7fd`; a label
+above that is refused when it is parsed rather than being silently masked onto a
+different id on the wire.
+
+The console is **raw frames, not ISO-TP, and that is contractual.** ISO-TP waits
+for the receiver's flow-control frame, so a device logging over it with no host
+attached would block — and a blocking log backend deadlocks boot. Raw frames are
+fire-and-forget and are dropped when the controller is busy. Consequences a
+consumer must accept:
+
+* **The channel is lossy under backpressure, by design.** A dropped frame appears
+  as a mangled line.
+* **There is no backlog.** Frames sent before a host attaches are gone. Boot-time
+  output is therefore not reliably observable over CAN.
+* Ordering is safe without sequence numbers: CAN delivers frames of one
+  identifier from one sender in order, and this identifier has one sender.
+* Being the highest of the three ids, the console has the **lowest arbitration
+  priority**, so an upload in progress wins the bus against chatty logs.
+
+A CAN target may instead name a serial console explicitly with
+`io.balena.mcu.log-target: tty:/dev/ttyACM0`, which overrides the bus channel —
+a board managed over CAN whose console comes back over a wire.
 
 How the label reaches the runtime is out of scope here: it arrives as an OCI
 annotation on the container spec, and who puts it there is the engine's business.

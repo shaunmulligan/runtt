@@ -10,6 +10,10 @@
 //! their own VID, which is why we do not match on VID/PID either.
 
 use crate::usb::{IFACE_LOG, IFACE_MGMT};
+
+/// How far above the node id the device's console frames sit. Must match
+/// `CONFIG_BALENA_MCU_CAN_NODE_ID + 2` in `firmware/balena-mcu/src/can_log.c`.
+pub const LOG_ID_OFFSET: u32 = 2;
 use crate::Target;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -40,8 +44,42 @@ pub enum Resolved {
     },
 }
 
+/// Where a target's console output comes from.
+///
+/// Not just a path, because a CAN target's console arrives as raw frames on the
+/// bus rather than from any character device.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogSource {
+    /// A character device carrying a plain byte stream.
+    Serial(PathBuf),
+    /// Raw CAN frames on `id`. See `transport::can::CanLogReader`.
+    Can { iface: String, id: u32 },
+}
+
 impl Resolved {
     /// The log channel, if this target has one at all.
+    ///
+    /// A CAN target has one by default -- the device's console goes out as raw
+    /// frames on `node_id + 2` -- but an explicit `tty:` log target overrides it,
+    /// for a board managed over the bus whose console comes back over a wire.
+    pub fn log_source(&self) -> Option<LogSource> {
+        match self {
+            Resolved::Serial { log, .. } => log.clone().map(LogSource::Serial),
+            Resolved::Can {
+                log: Some(p), ..
+            } => Some(LogSource::Serial(p.clone())),
+            Resolved::Can {
+                iface,
+                node_id,
+                log: None,
+            } => Some(LogSource::Can {
+                iface: iface.clone(),
+                id: node_id + LOG_ID_OFFSET,
+            }),
+        }
+    }
+
+    /// The explicitly-configured log *path*, where there is one.
     pub fn log_path(&self) -> Option<&Path> {
         match self {
             Resolved::Serial { log, .. } | Resolved::Can { log, .. } => log.as_deref(),
@@ -59,7 +97,7 @@ impl Resolved {
     /// How many channels this target presents, for the contract check against
     /// what the device says it has.
     pub fn channels(&self) -> u32 {
-        if self.log_path().is_some() {
+        if self.log_source().is_some() {
             2
         } else {
             1
@@ -224,7 +262,11 @@ fn from_udev_tree(port_path: &str) -> Result<Option<Resolved>> {
 /// than being silently masked into a different id on the wire, which would
 /// present as an unexplained timeout.
 ///
-/// The device replies on `node_id + 1`, so the top usable host id is `0x7fe`.
+/// A node owns THREE consecutive ids: requests on `node_id`, replies on
+/// `node_id + 1`, and the device's console on `node_id + 2`. The console id is
+/// reserved whether or not the firmware was built with CAN logging, so that
+/// enabling it later cannot collide with a neighbour already on the bus. The top
+/// usable host id is therefore `0x7fd`.
 fn parse_node_id(s: &str) -> Result<u32> {
     let t = s.trim();
     let parsed = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
@@ -243,11 +285,13 @@ fn parse_node_id(s: &str) -> Result<u32> {
              extended ids are not part of the contract."
         );
     }
-    if id == MAX_STD_ID {
+    if id + LOG_ID_OFFSET > MAX_STD_ID {
         bail!(
-            "CAN node id {s:?} leaves no room for the device's reply id, which is \
-             one higher ({:#x}) and would exceed the 11-bit maximum ({MAX_STD_ID:#x})",
-            id + 1
+            "CAN node id {s:?} leaves no room for the two ids the device also \
+             owns -- replies on {:#x} and its console on {:#x} -- and the 11-bit \
+             maximum is {MAX_STD_ID:#x}",
+            id + 1,
+            id + LOG_ID_OFFSET
         );
     }
     Ok(id)
@@ -400,15 +444,17 @@ mod tests {
         // otherwise be masked on the wire and present as a bare timeout.
         let e = parse_node_id("0x800").unwrap_err().to_string();
         assert!(e.contains("maximum standard CAN identifier"), "{e}");
-        assert_eq!(parse_node_id("0x7fe").unwrap(), 0x7fe);
+        assert_eq!(parse_node_id("0x7fd").unwrap(), 0x7fd);
     }
 
     #[test]
     fn a_node_id_with_no_room_for_the_reply_is_refused() {
-        // The device answers on node_id + 1, so the top standard id cannot be
-        // used as a host id however valid it looks on its own.
-        let e = parse_node_id("0x7ff").unwrap_err().to_string();
-        assert!(e.contains("no room for the device's reply"), "{e}");
+        // A node owns three ids, so the top two standard ids cannot be used as
+        // a host id however valid each looks on its own.
+        for taken in ["0x7ff", "0x7fe"] {
+            let e = parse_node_id(taken).unwrap_err().to_string();
+            assert!(e.contains("no room for the two ids"), "{taken}: {e}");
+        }
     }
 
     #[test]
@@ -435,14 +481,26 @@ mod tests {
             log: None,
         };
         assert_eq!(serial.channels(), 1);
-        assert_eq!(can.channels(), 1);
+        // A CAN target has a console channel of its own, two ids above its
+        // management id, without anything being configured.
+        assert_eq!(can.channels(), 2);
+        assert_eq!(
+            can.log_source(),
+            Some(LogSource::Can {
+                iface: "vcan0".into(),
+                id: 0x44
+            })
+        );
 
-        // A CAN target with an explicit serial log target is a real
-        // arrangement: managed over the bus, console back over a wire.
+        // An explicit serial log target overrides it: a board managed over the
+        // bus whose console comes back over a wire is a real arrangement.
         let mut can = can;
         can.set_log(PathBuf::from("/dev/ttyACM1"));
         assert_eq!(can.channels(), 2);
-        assert_eq!(can.log_path(), Some(Path::new("/dev/ttyACM1")));
+        assert_eq!(
+            can.log_source(),
+            Some(LogSource::Serial(PathBuf::from("/dev/ttyACM1")))
+        );
     }
 
     #[test]

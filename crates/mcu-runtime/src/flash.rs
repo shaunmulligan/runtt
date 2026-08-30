@@ -21,8 +21,8 @@ use smp_client::can::IsoTpTransport;
 use smp_client::{LogDemux, SmpClient, ToolkitClient};
 use std::path::Path;
 use std::time::{Duration, Instant};
-use transport::can::IsoTpChannel;
-use transport::resolve::Resolved;
+use transport::can::{CanLogReader, IsoTpChannel};
+use transport::resolve::{LogSource, Resolved};
 use transport::usb::SerialChannel;
 
 /// Baud is meaningless on CDC-ACM but must be something; 115200 is what a real
@@ -473,16 +473,16 @@ impl Deploy<'_> {
 /// engine's restart policy fire.
 pub fn stay_resident(
     mut c: ToolkitClient,
-    log_channel: Option<&Path>,
+    log_channel: Option<LogSource>,
     should_stop: &dyn Fn() -> bool,
 ) -> Result<()> {
-    // The log channel is a plain byte stream: no framing, just whatever the
-    // application printed. Pump it on its own thread straight to our stdout,
-    // which containerd has already wired to the container's log.
-    if let Some(path) = log_channel {
-        let path = path.to_path_buf();
+    // Whichever transport it came from, the log channel is a plain byte stream:
+    // no framing, just whatever the application printed. Pump it on its own
+    // thread straight to our stdout, which containerd has already wired to the
+    // container's log.
+    if let Some(source) = log_channel {
         std::thread::spawn(move || {
-            if let Err(e) = pump_logs(&path) {
+            if let Err(e) = pump_logs(&source) {
                 eprintln!("mcu-runtime: log channel closed: {e:#}");
             }
         });
@@ -515,15 +515,24 @@ pub fn stay_resident(
     }
 }
 
-fn pump_logs(path: &Path) -> Result<()> {
+fn pump_logs(source: &LogSource) -> Result<()> {
     use std::io::{BufRead, BufReader};
-    let ch = SerialChannel::open(
-        path.to_str()
-            .context("log device path is not valid UTF-8")?,
-        BAUD,
-        Duration::from_secs(3600),
-    )?;
-    let reader = BufReader::new(ch);
+    // Boxed so the two transports converge on one loop. A CAN log channel is
+    // raw frames on the bus rather than a character device, but both arrive
+    // here as a byte stream that splits on newlines.
+    let stream: Box<dyn std::io::Read + Send> = match source {
+        LogSource::Serial(path) => Box::new(SerialChannel::open(
+            path.to_str()
+                .context("log device path is not valid UTF-8")?,
+            BAUD,
+            Duration::from_secs(3600),
+        )?),
+        LogSource::Can { iface, id } => Box::new(
+            CanLogReader::open(iface, *id, Duration::from_secs(3600))
+                .with_context(|| format!("could not listen for logs on {iface} id {id:#x}"))?,
+        ),
+    };
+    let reader = BufReader::new(stream);
     for line in reader.lines() {
         match line {
             Ok(l) => println!("{l}"),
