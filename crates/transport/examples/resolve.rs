@@ -17,8 +17,13 @@ fn main() {
                     node_id + 1
                 ),
             }
-            match r.log_path() {
-                Some(l) => println!("  log:  {}", l.display()),
+            match r.log_source() {
+                Some(transport::resolve::LogSource::Serial(l)) => {
+                    println!("  log:  {}", l.display())
+                }
+                Some(transport::resolve::LogSource::Can { iface, id }) => {
+                    println!("  log:  {iface} raw frames on {id:#x}")
+                }
                 None => println!("  log:  <none: single channel>"),
             }
         }

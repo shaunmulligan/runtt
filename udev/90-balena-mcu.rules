@@ -35,3 +35,14 @@ SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-mgmt", \
 SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-log", \
   ENV{ID_MM_DEVICE_IGNORE}="1", MODE="0660", GROUP="plugdev", \
   SYMLINK+="balena-mcu/$env{ID_PATH_TAG}-log"
+
+# A second view of the same devices, keyed by the board's own serial rather than
+# by where it is plugged in. Additive: the by-port links above are unchanged.
+#
+# The runtime does not need these -- it resolves `usb:<serial>` by reading sysfs
+# directly -- but they make `ls /dev/balena-mcu/by-serial/` a legible inventory,
+# and they are how a human confirms a board took its provisioned name.
+SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-mgmt", ENV{ID_SERIAL_SHORT}=="?*", \
+  SYMLINK+="balena-mcu/by-serial/$env{ID_SERIAL_SHORT}-mgmt"
+SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-log", ENV{ID_SERIAL_SHORT}=="?*", \
+  SYMLINK+="balena-mcu/by-serial/$env{ID_SERIAL_SHORT}-log"

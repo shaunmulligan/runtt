@@ -14,7 +14,7 @@ use crate::usb::{IFACE_LOG, IFACE_MGMT};
 /// How far above the node id the device's console frames sit. Must match
 /// `CONFIG_BALENA_MCU_CAN_NODE_ID + 2` in `firmware/balena-mcu/src/can_log.c`.
 pub const LOG_ID_OFFSET: u32 = 2;
-use crate::Target;
+use crate::{Target, UsbSelector};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -124,6 +124,9 @@ struct Candidate {
     port_path: Option<String>,
     /// USB interface string descriptor, if the device supplies one.
     interface: Option<String>,
+    /// The device's USB serial string descriptor. On our firmware this is the
+    /// provisioned board serial, or a hardware-derived one when unprovisioned.
+    serial: Option<String>,
 }
 
 pub fn resolve(target: &Target) -> Result<Resolved> {
@@ -144,7 +147,10 @@ pub fn resolve(target: &Target) -> Result<Resolved> {
                 log: None,
             })
         }
-        Target::Usb { port_path } => resolve_usb(port_path),
+        Target::Usb { selector } => match selector {
+            UsbSelector::PortPath(p) => resolve_usb(p),
+            UsbSelector::Serial(serial) => resolve_usb_serial(serial),
+        },
         Target::Can { iface, node_id } => {
             let node_id = parse_node_id(node_id)?;
             // Check the interface exists here rather than letting `bind()` fail
@@ -163,6 +169,63 @@ pub fn resolve(target: &Target) -> Result<Resolved> {
                 log: None,
             })
         }
+    }
+}
+
+/// Find a board by the serial it publishes as its USB serial string descriptor.
+///
+/// DELIBERATELY NOT A PROBE. The tempting implementation opens every candidate
+/// tty and asks it `describe` -- which means speaking SMP to boards that belong
+/// to other containers, and an SMP frame landing mid-upload on somebody else's
+/// board is precisely the corruption hazard `ID_MM_DEVICE_IGNORE` exists to
+/// prevent. Identity has to be readable WITHOUT talking to the device, so the
+/// firmware publishes it in the USB serial string descriptor and this is a
+/// filesystem lookup like any other.
+fn resolve_usb_serial(serial: &str) -> Result<Resolved> {
+    let candidates = scan_ttys().context("failed to scan sysfs for tty devices")?;
+    let matching: Vec<&Candidate> = candidates
+        .iter()
+        .filter(|c| c.serial.as_deref() == Some(serial))
+        .collect();
+
+    if matching.is_empty() {
+        // Dedupe: a composite board contributes one candidate per CDC
+        // interface, and listing the same serial twice reads like two boards.
+        let mut seen: Vec<String> = candidates.iter().filter_map(|c| c.serial.clone()).collect();
+        seen.sort();
+        seen.dedup();
+        bail!(
+            "no board with serial {serial:?} is attached. Serials currently present: {}. \
+             A board only publishes one once it has an identity record -- write one with \
+             scripts/make-identity.py.",
+            if seen.is_empty() {
+                "none".to_string()
+            } else {
+                seen.join(", ")
+            }
+        );
+    }
+
+    let mgmt = matching
+        .iter()
+        .find(|c| c.interface.as_deref() == Some(IFACE_MGMT))
+        .map(|c| c.dev.clone());
+    let log = matching
+        .iter()
+        .find(|c| c.interface.as_deref() == Some(IFACE_LOG))
+        .map(|c| c.dev.clone());
+
+    match mgmt {
+        Some(mgmt) => Ok(Resolved::Serial { mgmt, log }),
+        None if matching.len() == 1 => Ok(Resolved::Serial {
+            mgmt: matching[0].dev.clone(),
+            log: None,
+        }),
+        None => bail!(
+            "found {} tty devices with serial {serial:?} but none advertising the \
+             {IFACE_MGMT} interface descriptor; is the firmware contract present?",
+            matching.len()
+        ),
     }
 }
 
@@ -317,6 +380,7 @@ fn scan_ttys() -> Result<Vec<Candidate>> {
         out.push(Candidate {
             port_path: tty_port_path(&name),
             interface: tty_interface(&name),
+            serial: tty_serial(&name),
             dev,
         });
     }
@@ -352,6 +416,22 @@ fn tty_interface(tty: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Read the USB serial string descriptor.
+///
+/// `/sys/class/tty/<tty>/device` is the USB *interface*; `serial` belongs to the
+/// USB *device* one level up, so this reads the parent. Both CDC interfaces of
+/// one composite board therefore report the same serial, which is exactly what
+/// lets a single serial name a board rather than one of its channels.
+fn tty_serial(tty: &str) -> Option<String> {
+    let link = Path::new("/sys/class/tty").join(tty).join("device");
+    let iface = std::fs::canonicalize(link).ok()?;
+    let device = iface.parent()?;
+    std::fs::read_to_string(device.join("serial"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,7 +441,7 @@ mod tests {
         assert_eq!(
             Target::parse("usb:3-6").unwrap(),
             Target::Usb {
-                port_path: "3-6".into()
+                selector: UsbSelector::PortPath("3-6".into())
             }
         );
         assert_eq!(
@@ -421,6 +501,33 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("does not exist"));
+    }
+
+    #[test]
+    fn usb_selectors_are_told_apart_by_shape() {
+        // Port paths are strictly <bus>-<port>[.<port>]*, so the two forms are
+        // disjoint sets rather than a guess.
+        for path in ["3-6", "1-1.2", "3-4.1.2", "11-2"] {
+            assert_eq!(
+                UsbSelector::parse(path),
+                UsbSelector::PortPath(path.into()),
+                "{path} should read as a port path"
+            );
+        }
+        for serial in ["feather-01", "arm-01", "3", "3-", "-4", "3-4a", "a-4", "3..4", "3-4."] {
+            assert_eq!(
+                UsbSelector::parse(serial),
+                UsbSelector::Serial(serial.into()),
+                "{serial} should read as a serial"
+            );
+        }
+    }
+
+    #[test]
+    fn a_usb_label_round_trips_in_either_form() {
+        for label in ["usb:3-6", "usb:feather-01"] {
+            assert_eq!(Target::parse(label).unwrap().to_string(), label);
+        }
     }
 
     #[test]

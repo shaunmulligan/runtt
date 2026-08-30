@@ -22,6 +22,7 @@ Extend only by claiming reserved space and bumping the version.
 """
 import argparse
 import binascii
+import re
 import struct
 import sys
 
@@ -44,6 +45,32 @@ STORAGE_BASE = {
     "esp32s3_devkitc": 0x3B0000,
     "native_sim": 0xFC000,
 }
+
+
+# A kernel USB port path: <bus>-<port>[.<port>]*, e.g. 3-6, 1-1.2, 3-4.1.2.
+#
+# A `usb:` placement label accepts either a port path or a serial, and they are
+# told apart by SHAPE. That only stays a total function rather than a guess if no
+# serial can look like a port path -- so serials of this shape are refused here,
+# at the one point where a serial is created. Keep this in step with
+# `is_port_path` in crates/transport/src/lib.rs.
+PORT_PATH_RE = re.compile(r"^\d+-\d+(\.\d+)*$")
+
+
+def parse_serial(text):
+    """Reject a serial that a placement label would read as a port path."""
+    if PORT_PATH_RE.match(text):
+        raise argparse.ArgumentTypeError(
+            f"serial {text!r} has the shape of a USB port path, so a placement label "
+            f"`usb:{text}` would address a physical port rather than this board. "
+            f"Choose a serial that is not <digits>-<digits>[.<digits>]."
+        )
+    if not text.isascii() or not text.isprintable():
+        raise argparse.ArgumentTypeError(
+            f"serial {text!r} must be printable ASCII: it is published as a USB "
+            f"string descriptor and read back through sysfs."
+        )
+    return text
 
 
 def parse_id(text):
@@ -95,7 +122,13 @@ def main():
         type=parse_id,
         help="base CAN id; the board also answers on +1 and logs on +2",
     )
-    ap.add_argument("--serial", help=f"board serial, up to {SERIAL_LEN} ASCII bytes")
+    ap.add_argument(
+        "--serial",
+        type=parse_serial,
+        help=f"board serial, up to {SERIAL_LEN} ASCII bytes. Published as the USB "
+        f"serial string descriptor, so `usb:<serial>` addresses this board wherever "
+        f"it is plugged in",
+    )
     ap.add_argument("-o", "--output", required=True, help="file to write (32 bytes)")
     ap.add_argument(
         "--board",

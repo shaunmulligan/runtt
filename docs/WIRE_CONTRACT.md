@@ -285,9 +285,51 @@ existing labels:
 
 ```
 io.balena.mcu.target: usb:3-6            # kernel USB port path
+io.balena.mcu.target: usb:feather-01     # ...or the board's own serial
 io.balena.mcu.target: tty:/dev/ttyACM0   # bare serial, a simulator's pty, a probe's bridge
 io.balena.mcu.target: can:vcan0/0x42     # SocketCAN interface and ISO-TP node id
 ```
+
+### The two `usb:` forms, and how they are told apart
+
+A `usb:` label takes either a kernel port path or a board serial. They are
+distinguished **by shape, not by guessing**: a port path is strictly
+`<bus>-<port>[.<port>]*` — digits, hyphens and dots and nothing else — so the two
+sets are disjoint and the classification is total. `scripts/make-identity.py`
+**refuses to write a serial of that shape**, which is what keeps them disjoint in
+fact rather than by convention.
+
+Both are legitimate and they answer different questions:
+
+| Form | Means | Right when |
+|---|---|---|
+| `usb:3-6` | the board in this physical position | boards are replaceable and **position defines the role** — swap a failed controller and the replacement inherits the job untouched |
+| `usb:feather-01` | this specific board, wherever it is | inventory is fixed and **identity defines the role** |
+
+The serial form is the only one that makes a compose file portable between
+machines: a port path encodes one host's USB tree, so the same file on another
+device targets a different port. It also removes a hazard the port-path form
+carries — re-cable a hub and a port-path label still resolves, but now to a
+different MCU.
+
+**Resolution by serial never talks to the device.** The firmware publishes its
+provisioned serial as the **USB serial string descriptor**, so a host reads it
+from sysfs before opening anything. The alternative — opening each candidate tty
+and asking `describe` — would mean sending SMP frames to boards owned by other
+containers, and a frame landing mid-upload is exactly the corruption
+`ID_MM_DEVICE_IGNORE` exists to prevent.
+
+A board with no identity record still publishes a hardware-derived serial, so two
+identical boards stay distinguishable before either is named. What provisioning
+changes is that the value becomes something a human chose and a compose file can
+name.
+
+**CAN has no equivalent form and does not need one.** A node id is already an
+identity that travels with the board rather than with the cabling, so
+`can:can0/0x45` has none of the port-path fragility. A serial-based CAN label
+would require discovering which id answers to which serial, and sweeping 2046
+identifiers is not viable; a broadcast enumeration protocol would be new contract
+surface for no current benefit.
 
 An unprefixed label is an **error**, not a guess. `io.balena.mcu.skip-if-same-hash`
 (default on) suppresses redeploying an image the device already runs, confirmed.
