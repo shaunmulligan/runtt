@@ -1,15 +1,46 @@
-# Upstreaming `MCUmgrClient::new_from_transport`
+# Upstreaming: let `Transport` be implemented outside `mcumgr-toolkit`
 
-A one-method addition to [`mcumgr-toolkit`](https://crates.io/crates/mcumgr-toolkit),
-carried locally until it lands upstream. **This is for you to submit** — the
-patch, the reasoning and a draft description are below.
+Two small changes to [`mcumgr-toolkit`](https://crates.io/crates/mcumgr-toolkit)
+0.16.0, carried locally until they land upstream. **This is for you to submit** —
+patch, reasoning and a draft PR description are below.
 
-Patch: `docs/patches/mcumgr-toolkit-new_from_transport.patch`
-Vendored tree: `third_party/mcumgr-toolkit/` (0.16.0 as published, plus this one commit)
+Patch: `docs/patches/mcumgr-toolkit-external-transports.patch`
+Vendored tree: `third_party/mcumgr-toolkit/` (0.16.0 as published, plus one commit)
 
 ---
 
-## What it adds
+## The problem
+
+`Transport` is a public trait, and implementing it is the documented way to add
+a bearer. In 0.16.0 you can do neither half of that from outside the crate.
+
+**1. The trait cannot be implemented.** Its required methods name
+`SMP_HEADER_SIZE` and `SMP_TRANSFER_BUFFER_SIZE`, and both are private:
+
+```rust
+const SMP_HEADER_SIZE: usize = 8;
+const SMP_TRANSFER_BUFFER_SIZE: usize = u16::MAX as usize;
+```
+
+```rust
+fn send_raw_frame(&mut self, header: [u8; SMP_HEADER_SIZE], data: &[u8]) -> …;
+fn recv_raw_frame<'a>(&mut self, buffer: &'a mut [u8; SMP_TRANSFER_BUFFER_SIZE]) -> …;
+```
+
+An external implementor cannot name the parameter types. `rustc` reports
+`error[E0603]: constant SMP_HEADER_SIZE is private`.
+
+**2. A working implementation could not be used anyway.** `MCUmgrClient`'s
+`connection` field is private and all four constructors — `new_from_serial`,
+`new_from_usb_serial`, `new_from_ble`, `new_from_udp` — are tied to a concrete
+transport type. `Connection::new` is already public and generic over
+`Transport`, so the capability exists one level down; it is simply not exposed.
+
+Together these make the public trait unreachable.
+
+## The change
+
+Make the two constants `pub`, with doc comments saying why, and add:
 
 ```rust
 pub fn new_from_transport<T: Transport + Send + 'static>(transport: T) -> Self {
@@ -20,59 +51,45 @@ pub fn new_from_transport<T: Transport + Send + 'static>(transport: T) -> Self {
 }
 ```
 
-Plus `Transport` to the existing `use crate::transport::{…}` list. That is the
-whole diff: one import, one method, and its doc comment.
-
-## Why it is needed
-
-`Transport` is a public trait, and `Connection::new<T: Transport + Send + 'static>`
-is already public and generic. But `MCUmgrClient` cannot be built from either:
-
-* its `connection` field is private, and
-* all four constructors — `new_from_serial`, `new_from_usb_serial`,
-  `new_from_ble`, `new_from_udp` — are tied to concrete transport types.
-
-So a `Transport` implementation living outside the crate compiles fine and is
-then unusable. The trait is public but unreachable.
+Both are additive. No signature changes, no behaviour changes, nothing removed.
+`Connection::new` already accepts exactly this bound, so the new constructor
+cannot express anything the crate does not already do internally.
 
 ## The motivating case
 
-SMP over **ISO-TP** (ISO 15765-2) on a CAN bus, for a project that deploys MCU
-firmware as OCI container images and needs a management channel over CAN
-alongside the existing USB one.
+SMP over **ISO-TP** (ISO 15765-2) on a CAN bus, for a project that ships MCU
+firmware as OCI container images and wants a management channel over CAN
+alongside USB.
 
 ISO-TP is datagram-oriented and handles its own segmentation, so the transport
-carries raw SMP frames and ends up close to a copy of the existing
-`UdpTransport` — about ninety lines. Both Linux (`can-isotp`, mainline since
-5.10) and Zephyr (`subsys/canbus/isotp`) provide ISO-TP, so no framing has to be
-invented on either side. The only thing missing is a way to hand the finished
-transport to a client.
+carries raw SMP frames and comes out close to a copy of `UdpTransport` — about
+ninety lines. Both Linux (`can-isotp`, mainline since 5.10) and Zephyr
+(`subsys/canbus/isotp`) implement ISO-TP, so no framing has to be invented.
 
-It generalises beyond CAN: any bearer that can carry a raw SMP frame — a test
-double, a custom radio link, a socket to a simulator — hits the same wall today.
-
-## Risk
-
-Additive. No existing signature changes, no behaviour changes, nothing removed.
-`Connection::new` already accepts exactly this bound, so the new constructor
-cannot express anything the crate does not already support internally.
+It generalises past CAN: any bearer that can carry a raw SMP frame — a test
+double, a custom radio, a socket to a simulator — hits the same wall.
 
 ## Draft PR description
 
-> **Add `MCUmgrClient::new_from_transport`**
+> **Allow `Transport` to be implemented outside the crate**
 >
-> `Transport` is public and `Connection::new` is already generic over it, but
-> `MCUmgrClient` can only be constructed from one of the four built-in
-> transports, and its `connection` field is private. That leaves out-of-crate
-> `Transport` implementations compilable but unusable.
+> `Transport` is public and implementing it is the documented way to add a
+> bearer, but in 0.16.0 that is not possible from another crate:
 >
-> This adds a generic constructor alongside the existing ones. It is purely
-> additive: no signature or behaviour changes.
+> * its required methods name `SMP_HEADER_SIZE` and `SMP_TRANSFER_BUFFER_SIZE`,
+>   which are private, so an external implementor cannot name the parameter
+>   types (`E0603`);
+> * and `MCUmgrClient` can only be built from one of the four built-in
+>   transports, since `connection` is private — so even a working impl could not
+>   be handed to a client.
 >
-> My use case is SMP over ISO-TP on CAN — the transport is close to a copy of
-> `UdpTransport`, since ISO-TP is datagram-oriented and does its own
-> segmentation, but there is currently no way to hand it to a client. The same
-> applies to any custom bearer, including test doubles.
+> This makes the two constants public and adds a generic
+> `MCUmgrClient::new_from_transport`, mirroring the already-public generic
+> `Connection::new`. Purely additive.
+>
+> My use case is SMP over ISO-TP on CAN: ISO-TP is datagram-oriented and does
+> its own segmentation, so the transport is close to a copy of `UdpTransport`.
+> The same applies to any custom bearer, including test doubles.
 
 ## When it lands
 
