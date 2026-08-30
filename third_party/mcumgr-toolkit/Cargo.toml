@@ -59,6 +59,10 @@ path = "tests/integration_tests.rs"
 name = "transport_serial_tests"
 path = "tests/transport_serial_tests.rs"
 
+[[test]]
+name = "external_transport_tests"
+path = "tests/external_transport_tests.rs"
+
 [dependencies.base64]
 version = "0.23.1"
 
