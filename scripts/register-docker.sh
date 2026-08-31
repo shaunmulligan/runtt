@@ -19,6 +19,11 @@ CONF="/etc/docker/daemon.json"
 install -m 0755 "$BIN_SRC" "$BIN_DST"
 echo "installed $BIN_DST"
 
+# Binaries this script installed under previous names, for the same reason.
+for legacy in /usr/local/bin/mcu-runtime; do
+  [[ -e "$legacy" ]] && { rm -f "$legacy"; echo "removed stale $legacy"; }
+done
+
 mkdir -p /etc/docker
 if [[ -f "$CONF" ]]; then
   cp -a "$CONF" "$CONF.bak.$(date +%s)"
@@ -34,7 +39,16 @@ try:
     conf = json.load(open(conf_path))
 except Exception:
     conf = {}
-conf.setdefault("runtimes", {})["runtt"] = {
+runtimes = conf.setdefault("runtimes", {})
+
+# Drop registrations this script made under the project's previous names. It only
+# ever removes entries it could have created itself, never anyone else's runtime,
+# and leaving them behind would point Docker at a binary that no longer exists.
+for legacy in ("mcu-runtime",):
+    if runtimes.pop(legacy, None) is not None:
+        print(f"removed the stale {legacy} registration")
+
+runtimes["runtt"] = {
     "path": bin_path,
     # Diagnostic for phase 0: the engine does not forward a user shell's
     # environment, so the trace path has to come in as a runtime arg.
