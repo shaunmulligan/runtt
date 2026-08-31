@@ -3,7 +3,7 @@
 # the shim passes us. Run as a normal user, after scripts/register-docker.sh.
 set -euo pipefail
 
-TRACE="${MCU_RUNTIME_TRACE:-/tmp/mcu-trace-docker.jsonl}"
+TRACE="${RUNTT_TRACE:-/tmp/mcu-trace-docker.jsonl}"
 IMAGE="mcu-fw:test"
 BUILD_DIR="$(mktemp -d)"
 trap 'rm -rf "$BUILD_DIR"' EXIT

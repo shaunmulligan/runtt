@@ -94,6 +94,28 @@ impl Resolved {
         }
     }
 
+    /// A key identifying the physical board, for the occupancy claim.
+    ///
+    /// CANONICALISED, which is the whole point. Two labels can name one device
+    /// through a symlink -- `tty:/dev/ttyACM1` and
+    /// `tty:/dev/runtt/<tag>-mgmt` are the same board -- and comparing the
+    /// literal paths would let both be claimed at once. Resolving the link is
+    /// what makes the claim about hardware rather than about spelling.
+    ///
+    /// Falls back to the unresolved path if canonicalisation fails, which is
+    /// worse than nothing only if it also would have failed to open.
+    pub fn lock_key(&self) -> String {
+        match self {
+            Resolved::Serial { mgmt, .. } => std::fs::canonicalize(mgmt)
+                .unwrap_or_else(|_| mgmt.clone())
+                .display()
+                .to_string(),
+            Resolved::Can {
+                iface, node_id, ..
+            } => format!("can:{iface}/{node_id:#x}"),
+        }
+    }
+
     /// How many channels this target presents, for the contract check against
     /// what the device says it has.
     pub fn channels(&self) -> u32 {
@@ -203,6 +225,26 @@ fn resolve_usb_serial(serial: &str) -> Result<Resolved> {
             } else {
                 seen.join(", ")
             }
+        );
+    }
+
+    // Two boards answering to one serial is a provisioning mistake, and picking
+    // whichever sysfs happened to enumerate first would make deploys
+    // non-deterministic -- the same label flashing a different board run to run.
+    // A port path cannot have this problem, since it is unique by construction;
+    // a serial is only as unique as whoever wrote it.
+    let mut ports: Vec<&str> = matching
+        .iter()
+        .filter_map(|c| c.port_path.as_deref())
+        .collect();
+    ports.sort();
+    ports.dedup();
+    if ports.len() > 1 {
+        bail!(
+            "serial {serial:?} is claimed by more than one board, on USB ports {}. \
+             Serials must be unique: re-provision one of them with \
+             scripts/make-identity.py, or address them by port path instead.",
+            ports.join(" and ")
         );
     }
 
@@ -608,6 +650,49 @@ mod tests {
             can.log_source(),
             Some(LogSource::Serial(PathBuf::from("/dev/ttyACM1")))
         );
+    }
+
+    #[test]
+    fn a_lock_key_resolves_symlinks_so_two_names_collapse_to_one() {
+        // Two labels can name one board. If the occupancy claim compared literal
+        // paths, `tty:/dev/ttyACM1` and a symlink to it would be claimed
+        // independently -- two runtimes flashing one MCU.
+        let dir = std::env::temp_dir().join("runtt-lockkey-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("real-device");
+        std::fs::write(&real, b"").unwrap();
+        let link = dir.join("alias-device");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let direct = Resolved::Serial {
+            mgmt: real.clone(),
+            log: None,
+        };
+        let aliased = Resolved::Serial {
+            mgmt: link.clone(),
+            log: None,
+        };
+        assert_eq!(
+            direct.lock_key(),
+            aliased.lock_key(),
+            "a symlinked device must produce the same occupancy key"
+        );
+        // ...while the Display stays the label the operator wrote.
+        assert_ne!(direct.to_string(), aliased.to_string());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_can_lock_key_is_the_bus_address() {
+        let can = Resolved::Can {
+            iface: "vcan0".into(),
+            node_id: 0x45,
+            log: None,
+        };
+        // No path to canonicalise; the address IS the identity.
+        assert_eq!(can.lock_key(), "can:vcan0/0x45");
     }
 
     #[test]

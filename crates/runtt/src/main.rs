@@ -113,6 +113,7 @@ fn real_main() -> Result<()> {
             log_target,
         } => {
             let code = proxy::run(
+                &ctx.root,
                 &container_id,
                 &target,
                 &firmware,

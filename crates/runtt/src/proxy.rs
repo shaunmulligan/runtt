@@ -44,6 +44,7 @@ fn install_handlers() -> Result<()> {
 /// Re-exec ourselves as the proxy, returning its PID.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
+    root: &Path,
     id: &str,
     target: &str,
     firmware: &Path,
@@ -54,7 +55,13 @@ pub fn spawn(
     let exe = std::env::current_exe().context("failed to resolve own executable path")?;
 
     let mut cmd = std::process::Command::new(exe);
-    cmd.arg(PROXY_SUBCOMMAND)
+    // --root is a GLOBAL flag, so it has to precede the subcommand. Without it
+    // the child falls back to the default state directory, which is /run/runtt
+    // and not writable by an ordinary user -- the device claim then fails with a
+    // permission error that looks nothing like the occupancy problem it is not.
+    cmd.arg("--root")
+        .arg(root)
+        .arg(PROXY_SUBCOMMAND)
         .arg("--container-id")
         .arg(id)
         .arg("--target")
@@ -74,8 +81,8 @@ pub fn spawn(
     cmd.env_clear();
     cmd.env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin");
     cmd.env(lock::LOCK_FD_ENV, lock_fd.to_string());
-    if let Ok(v) = std::env::var("MCU_RUNTIME_TRACE") {
-        cmd.env("MCU_RUNTIME_TRACE", v);
+    if let Ok(v) = std::env::var("RUNTT_TRACE") {
+        cmd.env("RUNTT_TRACE", v);
     }
     if let Ok(v) = std::env::var("RUST_LOG") {
         cmd.env("RUST_LOG", v);
@@ -135,6 +142,9 @@ pub fn await_exit(pid: i32, timeout: std::time::Duration) -> bool {
 
 /// The proxy's own main loop.
 pub fn run(
+    // Where occupancy locks live, so the resolved-device claim lands beside the
+    // label-keyed one taken in `create`.
+    root: &Path,
     container_id: &str,
     target: &str,
     firmware: &Path,
@@ -174,6 +184,18 @@ pub fn run(
         log = ?resolved.log_source(),
         "resolved target"
     );
+
+    // Claim the BOARD, now that we know which board it is.
+    //
+    // The label-keyed claim taken in `create` cannot do this job on its own: a
+    // board has more than one valid name -- `usb:3-4` and `usb:feather-01` may be
+    // the same hardware -- so two services using the two forms would take two
+    // different label locks and both proceed. Two runtimes flashing one MCU is
+    // precisely what occupancy exists to stop, so the authoritative claim is the
+    // one keyed on the resolved device. Held for the life of this process; the
+    // kernel drops it if we die.
+    let _device_claim = crate::lock::acquire_resolved(root, &resolved.lock_key())
+        .with_context(|| format!("{resolved} is already in use"))?;
 
     // An explicit log target overrides whatever the transport could work out,
     // which is nothing at all for tty: and nothing at all for can:.

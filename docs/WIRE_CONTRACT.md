@@ -158,7 +158,7 @@ lines per packet — `ceil(MTU * 4/3 / 124)`.
 |---|---|---|
 | `os` | 0 | echo (0), reset (5), MCUmgr parameters (6) |
 | `img` | 1 | state read/write (0), upload (1) |
-| balena | 64 | `describe` (0) |
+| `runtt` | 64 | `describe` (0) |
 
 `os` echo is the heartbeat. MCUmgr parameters is required because without it
 every client silently falls back to assumed frame sizes.

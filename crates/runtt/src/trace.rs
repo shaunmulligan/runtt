@@ -5,7 +5,7 @@
 //! get opaque shim failures, so every invocation appends a JSONL record with the
 //! full argv, cwd and (for `create`) the parsed spec.
 //!
-//! Enabled by `--mcu-trace <path>` or the `MCU_RUNTIME_TRACE` environment
+//! Enabled by `--mcu-trace <path>` or the `RUNTT_TRACE` environment
 //! variable. The flag matters because a container engine invokes us from the
 //! daemon's environment, not a user shell, so the env var alone is unreachable
 //! there — pass it via `"runtimeArgs"` in daemon.json instead.
@@ -22,7 +22,7 @@ static TRACE_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Called once at startup with the value of `--mcu-trace`, if given.
 pub fn init(flag: Option<PathBuf>) {
-    let resolved = flag.or_else(|| std::env::var_os("MCU_RUNTIME_TRACE").map(PathBuf::from));
+    let resolved = flag.or_else(|| std::env::var_os("RUNTT_TRACE").map(PathBuf::from));
     let _ = TRACE_PATH.set(resolved);
 }
 

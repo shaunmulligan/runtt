@@ -98,6 +98,7 @@ pub fn create(ctx: &Ctx, id: &str, bundle: &Path, pid_file: Option<&Path>) -> Re
     let lock_fd = lock::acquire(&ctx.root, &target)?;
 
     let pid = crate::proxy::spawn(
+        &ctx.root,
         id,
         &target,
         &firmware,
