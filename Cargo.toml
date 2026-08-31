@@ -53,3 +53,10 @@ mcumgr-toolkit = "=0.16.0"
 # it lands in a release.
 [patch.crates-io]
 mcumgr-toolkit = { path = "third_party/mcumgr-toolkit" }
+
+[profile.release]
+# Strip in the compiler rather than with binutils afterwards. Release artefacts
+# are cross-compiled for armv7 and aarch64, and the host's `strip` cannot handle
+# those -- it silently leaves the symbols in place. Doing it here is
+# toolchain-independent and works identically for every target.
+strip = "symbols"

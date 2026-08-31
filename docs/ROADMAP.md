@@ -170,44 +170,140 @@ now a cheap and genuinely strong artefact.
 
 ---
 
-## 3. Splitting the repo
+## 3. Upstream, then split, then CI
 
-The coupling is smaller than it looks. Contract knowledge in the runtime lives in
-four files: `transport/usb.rs` (the two interface strings), `transport/resolve.rs`,
-`smp-client/describe.rs`, and `runtt/annotations.rs`. **The wire contract is
-the entire seam.**
+In that order, and the order matters. An earlier version of this document said
+**"do not split before CI is green"**, reasoning that four repos multiply the
+never-executed-CI problem by four. That was wrong, and it is worth saying why
+rather than quietly deleting it: the argument assumed there was working CI to
+replicate. There is not — `ci.yml` has never run anywhere. Nothing is lost by
+splitting first, and the CI is *genuinely different per repo*, so building one
+monolithic pipeline and then splitting it means writing it twice.
 
-| Repo | Contents | Consumers |
+### Phase A — get the two upstream patches out first
+
+Both are carried locally today. They get **different treatment**, and conflating
+them would be a mistake.
+
+**`mcumgr-toolkit` → fork it.** The patch is written, tested and ready; see
+[UPSTREAM_MCUMGR_TOOLKIT.md](UPSTREAM_MCUMGR_TOOLKIT.md) for the submission
+steps. Once the fork exists, the workspace `[patch.crates-io]` block points at a
+git branch instead of `third_party/`, and the vendored tree is deleted:
+
+```toml
+[patch.crates-io]
+mcumgr-toolkit = { git = "https://github.com/<org>/mcumgr-toolkit", branch = "external-transports" }
+```
+
+⚠️ **A git dependency cannot be published to crates.io.** crates.io requires every
+dependency to itself be on crates.io, so as long as we ride a fork, `cargo
+publish` is closed to us. That is fine — and it is a reason to submit the patch
+promptly rather than living on the fork indefinitely. If publishing becomes
+urgent before upstream releases, the fallback is publishing the fork under a
+different crate name, which is worse than waiting.
+
+**MCUboot → submit the patch, do NOT fork.** It rides `west patch` in
+`firmware/patches.yml` today: explicit, pinned by sha256, visible in the tree, and
+re-applied against a known upstream revision. A fork would be an entire vendor
+tree to keep rebased for the sake of a few lines. `west patch` is the better
+mechanism here and should stay even after the patch is filed. Still pending before
+filing: a regression test in MCUboot's own simulator, noted in
+[MCUBOOT_SWAP_BUG.md](MCUBOOT_SWAP_BUG.md).
+
+### Phase B — the split
+
+Four repos, listed in the order to extract them — fewest inbound dependencies
+first, so each extraction can be proven before the next.
+
+| # | Repo | Contents | Artefacts |
+|---|---|---|---|
+| 1 | `runtt` | `crates/`, `udev/`, `register-docker.sh`, the wire contract | three static binaries |
+| 2 | `runtt-zephyr` | `firmware/runtt/` only — module, snippet, board conf/overlay | none |
+| 3 | `runtt-boards` | `firmware/{idle,bringup,builder,patches.yml,west.yml}`, provisioning and flashing scripts | provisioning images per board, plus `native_sim` test fixtures |
+| 4 | `runtt-examples` | `firmware/examples/`, the walkthrough | none |
+
+`runtt-zephyr` is the one a firmware author adds to their `west.yml`, so it should
+stay small, stable and boring. Module, snippet, board files. Nothing else.
+
+**Extract with history, not with `cp`.** `git subtree split` or `git filter-repo`,
+so `git blame` survives. That matters more here than in most projects: the commit
+messages carry the reasoning for decisions that are not obvious from the code, and
+a fresh `git init` throws all of it away.
+
+### The hard part: the gates span the split
+
+This is the part that will actually cost time, and it is worth planning before
+moving a single file. **The local gates are the only thing that has ever verified
+this project** — CI has never run — so a split that breaks them trades a working
+safety net for three untested pipelines.
+
+| Gate | Needs | After the split |
 |---|---|---|
-| `runtt` | `crates/`, `udev/` | anyone running `docker run`, podman, or a fleet manager |
-| `runtt` (west module) | `firmware/runtt/` | every customer's `west.yml` |
-| `runtt-boards` | `firmware/{idle,bringup,patches,builder}`, provisioning and flashing scripts | whoever provisions hardware |
-| `runtt-examples` | `firmware/examples/`, the walkthrough | customers learning the workflow |
+| `contract_version.rs` | the doc, the firmware Kconfig, the runtime's major, the mock | loses one input: the Kconfig moves to `runtt-zephyr` |
+| `native-sim-e2e.sh` | built `native_sim` firmware + the runtime binary | firmware source moves away |
+| `native-sim-can-e2e.sh` | as above, plus the CAN module and a `vcan` bus | as above |
+| `native-sim-engine-e2e.sh` | as above, plus podman | as above |
 
-`runtt` is the one customers add to their manifest, so it should stay small,
-stable and boring: module, snippet, board `.conf`/`.overlay`. Nothing else.
+**The answer for the e2e gates: `runtt-boards` publishes signed `native_sim`
+binaries as release assets, and `runtt`'s CI downloads a pinned release.** The
+runtime's tests need *a firmware binary*, not firmware source — and this is the
+same machinery `runtt-boards` needs anyway for provisioning images, so it is not
+extra work.
 
-### Keeping the contract honest across repos
+Pin the fixture release explicitly rather than tracking `latest`. Otherwise a
+change in `runtt-boards` can break `runtt`'s CI without anyone choosing to, which
+is the classic way a multi-repo split becomes miserable. A contract change then
+needs a deliberate two-repo dance: publish the new fixtures, bump the pin, land
+both. That coordination cost is the real price of splitting, and naming it up
+front is cheaper than discovering it.
 
-`contract_version.rs` currently guards runtime-against-firmware agreement only
-because they share a tree. Split them and that test cannot exist as written.
+**The answer for `contract_version.rs`: split it in two.** `runtt` keeps checking
+that the document, the runtime's accepted major and the mock agree.
+`runtt-zephyr` gains a small test asserting its Kconfig default matches the
+contract version it pins. Both are cheap, and together they cover what the single
+test covers today.
 
-1. **Version the contract explicitly.** `WIRE_CONTRACT.md` already carries 1.2.0
-   and `describe` reports it; the runtime already refuses a mismatched major.
-   Publish the document as the authority and have each repo assert a pinned
-   version. Start here.
-2. **A contract test repo** pulling both and cross-checking in CI. More faithful,
-   more machinery.
-3. **A shared `runtt-contract` crate** generating the module's headers.
-   Cleanest, adds a publishing step.
+### Phase C — CI, per repo
 
-Do (1) now, (3) only if drift actually bites. The failure mode is loud — a
-mismatched contract is reported by `describe` and named by the runtime — not
-silent.
+| Repo | Jobs |
+|---|---|
+| `runtt` | `cargo test` + clippy on x86; cross-build three targets; download pinned firmware fixtures and run all three gates; publish binaries on tag |
+| `runtt-zephyr` | build against every supported board (matrix); the Kconfig contract assertion |
+| `runtt-boards` | Zephyr SDK; matrix over every supported board; publish provisioning images and `native_sim` fixtures on tag |
+| `runtt-examples` | build both examples against the pinned module |
 
-**Do not split before CI is green.** Four repos multiply the never-executed
-problem by four. Split `runtt` out first; it has the fewest inbound
-dependencies.
+**Release artefacts for `runtt` — verified, not assumed.** All three targets
+cross-compile with **no external toolchain**: `rustup target add` plus
+`RUSTFLAGS="-C linker=rust-lld"`. No `cross`, no Docker-in-Docker, no apt
+packages. This works because `serialport` is configured `default-features =
+false`, so nothing links libudev and the binaries are fully static:
+
+| Target | Size | Type |
+|---|---|---|
+| `x86_64-unknown-linux-musl` | 4.8 MB | static-pie |
+| `aarch64-unknown-linux-musl` | 3.9 MB | static |
+| `armv7-unknown-linux-musleabihf` | 3.5 MB | static |
+
+Measured with the `strip = "symbols"` release profile. Strip **in the compiler**,
+not with binutils afterwards: the host `strip` silently fails to strip ARM
+binaries and leaves the symbols in place, which is how a 6.4 MB "stripped"
+aarch64 binary came to be measured during this work.
+
+The x86_64 static binary was run against the full `native-sim-e2e.sh` gate and
+passes, so these are working artefacts rather than merely things that link.
+
+**`runtt-boards` CI is the heavy one.** The builder image is ~33 GB, so the choice
+is between publishing it to a registry (GHCR, built on a schedule) and installing
+the Zephyr SDK per job (~10 minutes each, times the board matrix). Prefer the
+prebuilt image; the per-job install multiplied across 5+ boards is the difference
+between a usable pipeline and one nobody waits for.
+
+### The one rule while splitting
+
+**Keep the monorepo's gates green until each extracted repo's replacement is
+green.** Do not delete anything from here until the new home proves itself. The
+extraction is reversible right up to the point of deletion, and irreversible
+after.
 
 ---
 
@@ -283,12 +379,27 @@ build-time one.
 
 ## Suggested order
 
-1. **Remote + CI green** — everything else compounds on this
-2. **ESP32-S3** — cheap, proves the contract is not Pico-shaped
-3. **Repo split** — `runtt` out first
-4. **CAN over `vcan`** — no hardware needed; lands in the transport crate
-5. **Robotics demo** — most visible, benefits from the split being done
-6. **ESP32-C3** — first real validation of the single-channel demux
+Revised, and two items are struck because they are done: CAN over `vcan` works
+and gates locally, and the CAN transport landed in `runtt-transport`.
+
+1. **Submit both upstream patches** — `mcumgr-toolkit` by fork, MCUboot by
+   `west patch`. Doing this first means the split does not have to carry a
+   vendored tree into a new repo.
+2. **Point this repo at the `mcumgr-toolkit` fork** and delete `third_party/`.
+3. **Split, one repo at a time**, `runtt` first — with the monorepo's gates kept
+   green until each new repo's replacement is green.
+4. **CI per repo**, including the cross-compiled release matrix and the
+   `native_sim` fixture publishing that the runtime's gates depend on.
+5. **ESP32-S3** — cheap, proves the contract is not Pico-shaped, and the board is
+   on order along with the two CAN boards.
+6. **CAN on physical hardware** — two different controllers, which is what makes
+   the ISO-TP layer proven rather than merely intended.
+7. **Robotics demo** — most visible, and benefits from the split being done.
+
+Note what moved: "remote + CI green" is no longer first on its own, because the
+split changes what CI should even be. Getting a remote is still the single
+highest-leverage act — nothing here has ever executed anywhere but one laptop —
+but it now belongs *with* the split rather than before it.
 
 ---
 
