@@ -29,7 +29,7 @@ Neither side takes an exclusive claim:
   A search of that repo's issues for exclusivity returns nothing — it has never
   been requested. **[verified]**
 * **Our occupancy lock is not device-shaped.** `lock::acquire`
-  (`crates/mcu-runtime/src/lock.rs:33`) flocks a regular file named
+  (`crates/runtt/src/lock.rs:33`) flocks a regular file named
   `occupancy-<label>.lock` under `--root`. It touches no device node.
   **[verified]**
 
@@ -38,7 +38,7 @@ Neither side takes an exclusive claim:
 Because nothing takes a lock, **nothing stops a misconfigured agent opening the
 management channel and corrupting an SMP upload mid-flash.** Every micro-ROS
 tutorial says `--dev /dev/ttyACM0`, and on a composite device that is as likely
-to be `balena-mcu-mgmt` as the ROS channel.
+to be `runtt-mgmt` as the ROS channel.
 
 The only available defence is the one the contract already uses: a distinct
 interface string descriptor and its own udev rule. Note the ordering constraint
@@ -87,7 +87,7 @@ transport uses nothing but `uart_irq_callback_set` / `uart_irq_rx_enable` /
 
 **So a third CDC-ACM channel needs no new transport code** — only a `UART_NODE`
 pointing at the new node, plus the app-side `usbd_*` init this project already
-has in `firmware/balena-mcu/src/usbd.c`.
+has in `firmware/runtt/src/usbd.c`.
 
 The one obstacle is that `UART_NODE` is hardcoded:
 
@@ -256,9 +256,9 @@ model and gives per-MCU restart granularity. **[verified]**
 **Invocation**, for reference:
 
 ```bash
-ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/balena-mcu/<tag>-ros
+ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/runtt/<tag>-ros
 # or, standalone:
-MicroXRCEAgent serial --dev /dev/balena-mcu/<tag>-ros -b 921600
+MicroXRCEAgent serial --dev /dev/runtt/<tag>-ros -b 921600
 ```
 
 Transports accepted: `udp4 udp6 tcp4 tcp6 canfd serial multiserial

@@ -34,7 +34,7 @@ IFACE="${IFACE:-vcan0}"
 # through the provisioned path -- if this matched the built-in default, the test
 # would pass just as well with the record ignored entirely.
 NODE_ID="${NODE_ID:-0x45}"
-RUNTIME="${RUNTIME:-$REPO/target/debug/mcu-runtime}"
+RUNTIME="${RUNTIME:-$REPO/target/debug/runtt}"
 BUILD_DIR="${BUILD_DIR:-$REPO/build-can}"
 SIM="${SIM:-$BUILD_DIR/zephyr/zephyr.exe}"
 WORK="$(mktemp -d)"
@@ -93,7 +93,7 @@ cat > "$WORK/bundle/config.json" <<JSON
     "terminal": false
   },
   "root": { "path": "rootfs", "readonly": true },
-  "annotations": { "io.balena.mcu.target": "can:$IFACE/$NODE_ID" }
+  "annotations": { "dev.runtt.target": "can:$IFACE/$NODE_ID" }
 }
 JSON
 
@@ -136,7 +136,7 @@ ok "board took its node id from flash, not from the build"
 # cannot be disabled from Kconfig. This is the assertion that actually failed
 # while the backend was emitting one frame per character.
 LOG_ID=$(printf '0x%x' $(( NODE_ID + 2 )))
-timeout 6 cargo run -q -p transport --example can-logs -- "$IFACE" "$NODE_ID" \
+timeout 6 cargo run -q -p runtt-transport --example can-logs -- "$IFACE" "$NODE_ID" \
   > "$WORK/canlog.txt" 2>/dev/null || true
 # Match a RECURRING line, not the boot banner. A raw CAN channel has no backlog:
 # frames sent before this listener attached are gone, by design, because the
@@ -157,7 +157,7 @@ set -e
 "$RUNTIME" --root "$STATE" start ncan >> "$WORK/rt.log" 2>&1 || true
 
 for _ in $(seq 1 80); do
-  grep -qE "mcu-runtime: |image confirmed" "$WORK/rt.log" && break
+  grep -qE "runtt: |image confirmed" "$WORK/rt.log" && break
   sleep 0.5
 done
 sleep 2

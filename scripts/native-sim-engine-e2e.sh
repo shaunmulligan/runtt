@@ -4,7 +4,7 @@
 # scripts/native-sim-e2e.sh invokes the OCI verbs directly, which proves
 # runtime <-> device. This proves the other seam at the same time:
 #
-#   podman/docker -> containerd shim -> mcu-runtime -> SMP -> Zephyr native_sim
+#   podman/docker -> containerd shim -> runtt -> SMP -> Zephyr native_sim
 #
 # So the firmware really is delivered as a container image, resolved from the
 # entrypoint inside a real rootfs, with the placement label arriving as an OCI
@@ -14,7 +14,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-RUNTIME="${RUNTIME:-$REPO/target/debug/mcu-runtime}"
+RUNTIME="${RUNTIME:-$REPO/target/debug/runtt}"
 SIM="${SIM:-$REPO/build/zephyr/zephyr.exe}"
 IMAGE="${IMAGE:-mcu-fw:native-sim-e2e}"
 WORK="$(mktemp -d)"
@@ -51,7 +51,7 @@ ENGINE="${ENGINE:-}"
 if [[ -z "$ENGINE" ]]; then
   if command -v podman >/dev/null; then
     ENGINE=podman
-  elif command -v docker >/dev/null && docker info 2>/dev/null | grep -q 'mcu-runtime'; then
+  elif command -v docker >/dev/null && docker info 2>/dev/null | grep -q 'runtt'; then
     ENGINE=docker
   else
     fail "no usable engine: install podman, or register with Docker via scripts/register-docker.sh"
@@ -64,7 +64,7 @@ echo "engine: $ENGINE"
 # ways -- an older one lacking the MCUboot TLV parser reports
 # IMG_MGMT_ERR_HASH_NOT_FOUND, which looks like a device problem.
 if [[ "$ENGINE" == docker ]]; then
-  REGISTERED="${REGISTERED:-/usr/local/bin/mcu-runtime}"
+  REGISTERED="${REGISTERED:-/usr/local/bin/runtt}"
   [[ -e "$REGISTERED" ]] || fail "$REGISTERED does not exist. Run: sudo scripts/register-docker.sh"
   if ! cmp -s "$RUNTIME" "$REGISTERED"; then
     fail "the registered runtime is stale.
@@ -121,11 +121,11 @@ ok "native_sim up on $MGMT"
 #
 # Docker's daemon runs as root and resolves the pty in the host namespace, so
 # pass the resolved /dev/pts path rather than the symlink.
-RUN_ARGS=(run --rm --annotation "io.balena.mcu.target=tty:$MGMT")
+RUN_ARGS=(run --rm --annotation "dev.runtt.target=tty:$MGMT")
 if [[ "$ENGINE" == docker ]]; then
   # A firmware service has no business holding a network namespace.
-  RUN_ARGS=(run --rm --runtime mcu-runtime --network none
-            --annotation "io.balena.mcu.target=tty:$MGMT")
+  RUN_ARGS=(run --rm --runtime runtt --network none
+            --annotation "dev.runtt.target=tty:$MGMT")
   set +e
   timeout 120 docker "${RUN_ARGS[@]}" "$IMAGE" > "$WORK/container.log" 2>&1
   RC=$?
@@ -184,4 +184,4 @@ ok "slot 1 matches the image shipped inside the container image"
 ok "container exited non-zero, which is what drives a restart policy"
 
 echo
-echo "PASS: engine -> $ENGINE -> mcu-runtime -> SMP -> native_sim, end to end."
+echo "PASS: engine -> $ENGINE -> runtt -> SMP -> native_sim, end to end."

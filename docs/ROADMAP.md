@@ -7,7 +7,7 @@ Pico and the Feather were proven end to end.
 
 Two boards, two architectures, one runtime and one contract. On each of a
 Raspberry Pi Pico (RP2040, Cortex-M0+) and an Adafruit Feather nRF52840
-(Cortex-M4), `docker run --runtime=mcu-runtime` uploads firmware over USB,
+(Cortex-M4), `docker run --runtime=runtt` uploads firmware over USB,
 MCUboot swaps and confirms it, the new image boots, and its logs reach container
 stdio. Digests verified independently against imgtool in both cases.
 
@@ -51,7 +51,7 @@ the board section's job — the same shape as the other two boards.
 No USB-OTG. Instead the built-in USB Serial/JTAG peripheral, driven by
 `serial_esp32_usb.c`, which presents exactly **one** fixed CDC channel.
 
-That is `CONFIG_BALENA_MCU_CHANNELS=1` plus the log demux — and the module's own
+That is `CONFIG_RUNTT_CHANNELS=1` plus the log demux — and the module's own
 Kconfig help already names "ESP32-C3 class" as the reason that option exists. It
 would be the first real hardware validation of the demux, which today is proven
 on native_sim, the mock, and only incidentally on hardware.
@@ -106,9 +106,9 @@ The loop is closed. native_sim firmware on `zcan0` and the runtime on `vcan0`
 exchange the full contract with no hardware involved:
 
 ```
-$ cargo run -p smp-client --example can-ping -- vcan0 0x42
+$ cargo run -p runtt-smp --example can-ping -- vcan0 0x42
   can:vcan0/0x42
-  echo -> "balena"
+  echo -> "runtt"
   image list -> no images
   describe -> board: "native_sim/native/64", contract: "1.2.0", channels: 2
 ```
@@ -145,7 +145,7 @@ It gates in CI alongside the existing native_sim jobs.
 than ISO-TP -- ISO-TP waits for the receiver's flow control, and a log backend
 that blocks deadlocks boot. The channel is lossy under backpressure and has no
 backlog, both deliberately; see docs/WIRE_CONTRACT.md for what a consumer has to
-accept. An explicit `io.balena.mcu.log-target` still overrides it, for a board
+accept. An explicit `dev.runtt.log-target` still overrides it, for a board
 managed over the bus whose console comes back over a wire.
 
 Two things cost real time here and are worth carrying forward:
@@ -174,17 +174,17 @@ now a cheap and genuinely strong artefact.
 
 The coupling is smaller than it looks. Contract knowledge in the runtime lives in
 four files: `transport/usb.rs` (the two interface strings), `transport/resolve.rs`,
-`smp-client/describe.rs`, and `mcu-runtime/annotations.rs`. **The wire contract is
+`smp-client/describe.rs`, and `runtt/annotations.rs`. **The wire contract is
 the entire seam.**
 
 | Repo | Contents | Consumers |
 |---|---|---|
-| `mcu-runtime` | `crates/`, `udev/` | balenaOS, anyone running `docker run` |
-| `balena-mcu` (west module) | `firmware/balena-mcu/` | every customer's `west.yml` |
-| `balena-mcu-boards` | `firmware/{idle,bringup,patches,builder}`, provisioning and flashing scripts | whoever provisions hardware |
-| `balena-mcu-examples` | `firmware/examples/`, the walkthrough | customers learning the workflow |
+| `runtt` | `crates/`, `udev/` | balenaOS, anyone running `docker run` |
+| `runtt` (west module) | `firmware/runtt/` | every customer's `west.yml` |
+| `runtt-boards` | `firmware/{idle,bringup,patches,builder}`, provisioning and flashing scripts | whoever provisions hardware |
+| `runtt-examples` | `firmware/examples/`, the walkthrough | customers learning the workflow |
 
-`balena-mcu` is the one customers add to their manifest, so it should stay small,
+`runtt` is the one customers add to their manifest, so it should stay small,
 stable and boring: module, snippet, board `.conf`/`.overlay`. Nothing else.
 
 ### Keeping the contract honest across repos
@@ -198,7 +198,7 @@ because they share a tree. Split them and that test cannot exist as written.
    version. Start here.
 2. **A contract test repo** pulling both and cross-checking in CI. More faithful,
    more machinery.
-3. **A shared `balena-mcu-contract` crate** generating the module's headers.
+3. **A shared `runtt-contract` crate** generating the module's headers.
    Cleanest, adds a publishing step.
 
 Do (1) now, (3) only if drift actually bites. The failure mode is loud — a
@@ -206,7 +206,7 @@ mismatched contract is reported by `describe` and named by the runtime — not
 silent.
 
 **Do not split before CI is green.** Four repos multiply the never-executed
-problem by four. Split `mcu-runtime` out first; it has the fewest inbound
+problem by four. Split `runtt` out first; it has the fewest inbound
 dependencies.
 
 ---
@@ -232,7 +232,7 @@ container stdio, and it works on both boards today.
 
 ```
 Pico   ──USB──┐
-              ├── mcu-runtime (one container each) ──► container stdout
+              ├── runtt (one container each) ──► container stdout
 Feather ─USB──┘                                             │
                                                             ▼
                                                   mcu-bridge container
@@ -285,7 +285,7 @@ build-time one.
 
 1. **Remote + CI green** — everything else compounds on this
 2. **ESP32-S3** — cheap, proves the contract is not Pico-shaped
-3. **Repo split** — `mcu-runtime` out first
+3. **Repo split** — `runtt` out first
 4. **CAN over `vcan`** — no hardware needed; lands in the transport crate
 5. **Robotics demo** — most visible, benefits from the split being done
 6. **ESP32-C3** — first real validation of the single-channel demux

@@ -1,17 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/mcu-runtime",
-    "crates/smp-client",
-    "crates/transport",
-    "crates/smp-mock",
+    "crates/runtt",
+    "crates/runtt-smp",
+    "crates/runtt-transport",
+    "crates/runtt-mock",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/balena-os/mcu-runtime"
+repository = "https://github.com/balena-os/runtt"
 
 [workspace.dependencies]
 anyhow = "1.0.104"

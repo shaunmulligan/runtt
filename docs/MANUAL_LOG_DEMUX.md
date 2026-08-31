@@ -16,14 +16,14 @@ Three routes below, cheapest first. Each is self-contained.
 
 ## 1. Two minutes, no Zephyr: the mock
 
-`smp-mock --chatter` emits application log lines on the same link it serves SMP
+`runtt-mock --chatter` emits application log lines on the same link it serves SMP
 on, which is exactly the single-channel shape.
 
 ```bash
 cargo build --workspace
 
 # A device that talks SMP *and* prints.
-./target/debug/smp-mock --symlink /tmp/mcu-tty --chatter '<inf> app: alive tick' &
+./target/debug/runtt-mock --symlink /tmp/mcu-tty --chatter '<inf> app: alive tick' &
 PTS=$(readlink -f /tmp/mcu-tty)
 
 # A bundle pointing at it. tty: targets are single-channel by definition.
@@ -34,13 +34,13 @@ cat > /tmp/demo/config.json <<JSON
   "process": { "user": {"uid":0,"gid":0}, "args": ["app.signed.bin"],
                "cwd": "/", "terminal": false },
   "root": { "path": "rootfs", "readonly": true },
-  "annotations": { "io.balena.mcu.target": "tty:$PTS" } }
+  "annotations": { "dev.runtt.target": "tty:$PTS" } }
 JSON
 
-./target/debug/mcu-runtime --root /tmp/demo-state create --bundle /tmp/demo one
-./target/debug/mcu-runtime --root /tmp/demo-state start one
+./target/debug/runtt --root /tmp/demo-state create --bundle /tmp/demo one
+./target/debug/runtt --root /tmp/demo-state start one
 sleep 8
-./target/debug/mcu-runtime --root /tmp/demo-state delete --force one
+./target/debug/runtt --root /tmp/demo-state delete --force one
 kill %1
 ```
 
@@ -67,7 +67,7 @@ The mock is a mock. This runs actual Zephyr with the console and the SMP server
 sharing one UART, which is what an ESP32-C3 class part or a probe-UART bring-up
 looks like.
 
-`CONFIG_BALENA_MCU_CHANNELS=1` alone is **not** enough — it is declarative, and
+`CONFIG_RUNTT_CHANNELS=1` alone is **not** enough — it is declarative, and
 only changes the number `describe` reports. The channel count is a devicetree
 fact, so move the console onto the management UART:
 
@@ -83,11 +83,11 @@ cat > /tmp/single-channel.overlay <<'DTS'
 DTS
 
 export ZEPHYR_BASE="$PWD/zephyr" ZEPHYR_TOOLCHAIN_VARIANT=host
-west build -p always -b native_sim/native/64 --snippet balena-mcu firmware/app \
+west build -p always -b native_sim/native/64 --snippet runtt firmware/app \
   -d /tmp/build-1ch -- \
-  -DZEPHYR_EXTRA_MODULES="$PWD/firmware/balena-mcu" \
+  -DZEPHYR_EXTRA_MODULES="$PWD/firmware/runtt" \
   -DEXTRA_DTC_OVERLAY_FILE=/tmp/single-channel.overlay \
-  -DCONFIG_BALENA_MCU_CHANNELS=1
+  -DCONFIG_RUNTT_CHANNELS=1
 ```
 
 Run it, and point the runtime at the management pty only:
@@ -110,7 +110,7 @@ Then build a bundle against `tty:$PTS` exactly as in §1 and run
 mcu: single channel; application logs are demultiplexed from the management link
 mcu: device is native_sim/native/64 running 0.1.0 (contract 1.2.0, 1 channel)
 *** Booting Zephyr OS build dccb09599635 ***
-[00:00:00.000,000] <inf> app: balena-mcu template app 0.1.0 starting on native_sim/native/64
+[00:00:00.000,000] <inf> app: runtt template app 0.1.0 starting on native_sim/native/64
 [00:00:00.000,000] <inf> app: alive, tick 0
 mcu: uploading 8856/8856 bytes (100%)
 [00:00:00.500,000] <inf> mcuboot_util: Image index: 0, Swap type: test
@@ -144,7 +144,7 @@ The build environment comes from a **builder image**, built once, which is what
 lets an application directory be self-contained:
 
 ```bash
-docker build -f firmware/builder/Dockerfile -t balena-mcu-builder:v4.4.2 firmware/
+docker build -f firmware/builder/Dockerfile -t runtt-builder:v4.4.2 firmware/
 ```
 
 Then build the application from inside its own directory:
@@ -157,8 +157,8 @@ podman build --build-arg BOARD=rpi_pico/rp2040/mcuboot -t mcu-fw:pico .
 Then deploy it exactly like any other image:
 
 ```bash
-podman --runtime="$PWD/target/debug/mcu-runtime" run --rm \
-  --annotation io.balena.mcu.target=usb:3-4 \
+podman --runtime="$PWD/target/debug/runtt" run --rm \
+  --annotation dev.runtt.target=usb:3-4 \
   mcu-fw:pico
 ```
 
@@ -173,7 +173,7 @@ podman save mcu-fw:pico | tar -t | head
 > **Two things the application Dockerfile needs that are easy to miss**, both
 > handled in the examples but worth understanding if you write your own:
 >
-> * `-DZEPHYR_EXTRA_MODULES=/ws/balena-mcu`. The module lives *inside* the
+> * `-DZEPHYR_EXTRA_MODULES=/ws/runtt`. The module lives *inside* the
 >   manifest repo, and west only auto-discovers a `module.yml` at a project's
 >   root — ours is nested, so without this the module and its snippet simply are
 >   not there. Both build scripts carry the same line.
@@ -198,9 +198,9 @@ channel directly with a `tty:` target, which makes the host treat it as
 single-channel:
 
 ```bash
-MGMT=$(readlink -f /dev/balena-mcu/*-mgmt)
-podman --runtime="$PWD/target/debug/mcu-runtime" run --rm \
-  --annotation io.balena.mcu.target="tty:$MGMT" \
+MGMT=$(readlink -f /dev/runtt/*-mgmt)
+podman --runtime="$PWD/target/debug/runtt" run --rm \
+  --annotation dev.runtt.target="tty:$MGMT" \
   mcu-fw:pico
 ```
 
@@ -256,7 +256,7 @@ python3 bootloader/mcuboot/scripts/imgtool.py sign \
 
 **`Unable to acquire exclusive lock on serial port`** — something still holds
 the device. `serialport` takes an `flock(LOCK_EX)` on open, so a leftover proxy
-from a failed run keeps it. `pgrep -af mcu-runtime` and
+from a failed run keeps it. `pgrep -af runtt` and
 `fuser -v /dev/ttyACM*`, then `delete --force` the container.
 
 **The deploy works but no log lines appear** — check the runtime actually said

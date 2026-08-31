@@ -13,7 +13,7 @@ Pico on the bench; where something is inferred rather than run, it says so.
 
 | Job | Proves |
 |---|---|
-| `test` | fmt, clippy, the Rust suite, and a podman run of a real `FROM scratch` image against `smp-mock` over a `tty:` target — including that **mark-test precedes confirm**, asserted by line order, not just by both appearing |
+| `test` | fmt, clippy, the Rust suite, and a podman run of a real `FROM scratch` image against `runtt-mock` over a `tty:` target — including that **mark-test precedes confirm**, asserted by line order, not just by both appearing |
 | `native-sim` | the real Zephyr SMP server, two channels, upload, trailer write, reset, reconnect — driven directly *and* through podman |
 | `mcuboot-sim` | swap, revert and confirm under **injected power failures**, using MCUboot's own Rust simulator over the real `bootutil` sources |
 
@@ -37,16 +37,16 @@ genuinely narrow — but it is not empty.
 * Actual link throughput, and whether SMP timeouts hold at real speed.
 * Replug and device-disappears-mid-operation behaviour.
 * **Revert.** Asserted nowhere in this repo today: `DigestAlreadyFailed` is
-  exercised only inside `smp-mock`'s own unit test, never through the runtime.
+  exercised only inside `runtt-mock`'s own unit test, never through the runtime.
 
 ## The trap that makes a naive gate worthless
 
 **A hardware gate is not idempotent, and the obvious version silently no-ops
 from the second run onwards.**
 
-`skip_if_same` defaults to **true** (`crates/mcu-runtime/src/verbs.rs:96`,
+`skip_if_same` defaults to **true** (`crates/runtt/src/verbs.rs:96`,
 `.unwrap_or(true)`), and rebuilding from an unchanged tree produces a
-byte-identical `zephyr.signed.bin`. So `crates/mcu-runtime/src/flash.rs:102-109`
+byte-identical `zephyr.signed.bin`. So `crates/runtt/src/flash.rs:102-109`
 takes the early return:
 
 ```

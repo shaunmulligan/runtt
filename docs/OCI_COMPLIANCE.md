@@ -1,6 +1,6 @@
 # OCI runtime compliance
 
-`mcu-runtime` is an OCI runtime that does not run a container. It deploys
+`runtt` is an OCI runtime that does not run a container. It deploys
 firmware to an attached microcontroller and then stays resident as the
 container process. This document is the honest register of what it implements,
 what it deliberately does not, and what the container engine was *observed* to
@@ -68,7 +68,7 @@ tracks the process itself. It must still work, but it is not on the hot path.
 Against real Docker, with a `FROM scratch` + `ADD app.signed.bin /` +
 `ENTRYPOINT ["app.signed.bin"]` image:
 
-- **Placement annotation arrives.** `docker run --annotation io.balena.mcu.target=usb:3-6`
+- **Placement annotation arrives.** `docker run --annotation dev.runtt.target=usb:3-6`
   reaches `spec.annotations`. (On balena the supervisor delivers this from the
   target-state API instead; either way the runtime only reads the spec.)
 - **Firmware resolves from the entrypoint**, inside the real overlay rootfs.

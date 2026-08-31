@@ -1,6 +1,6 @@
 # The balena MCU wire contract
 
-**Version 1.2.0**
+**Version 2.0.0**
 
 The runtime and the firmware ship from different parties. The runtime is a host
 binary delivered with the OS; the firmware is a container image the customer
@@ -18,7 +18,7 @@ The honesty test for this contract: a competent Zephyr developer with existing
 firmware should get onto the platform by adding a module and one build flag.
 
 ```bash
-west build -b <board> --sysbuild app/ -- -Dapp_SNIPPET=balena-mcu
+west build -b <board> --sysbuild app/ -- -Dapp_SNIPPET=runtt
 ```
 
 That is the whole developer surface. The module supplies the SMP server, the two
@@ -29,19 +29,19 @@ Opt-in Kconfig:
 
 | Symbol | Default | Meaning |
 |---|---|---|
-| `BALENA_MCU_CHANNELS` | 2 | 1 for single-serial targets (see §3) |
-| `BALENA_MCU_IMG_MGMT` | follows `slot1_partition` | the update half of the contract |
-| `BALENA_MCU_SMP_DESCRIBE` | y | the identity command (§6) |
-| `BALENA_MCU_CONTRACT_VERSION` | `"1.2.0"` | what `describe` reports |
-| `BALENA_MCU_HEALTH` | **n** | application liveness (§7) |
+| `RUNTT_CHANNELS` | 2 | 1 for single-serial targets (see §3) |
+| `RUNTT_IMG_MGMT` | follows `slot1_partition` | the update half of the contract |
+| `RUNTT_SMP_DESCRIBE` | y | the identity command (§6) |
+| `RUNTT_CONTRACT_VERSION` | `"2.0.0"` | what `describe` reports |
+| `RUNTT_HEALTH` | **n** | application liveness (§7) |
 
 The only C API is one function, and it is optional:
 
 ```c
-void balena_mcu_health_feed(void);
+void runtt_health_feed(void);
 ```
 
-> With `--sysbuild`, pass the snippet as `-Dapp_SNIPPET=balena-mcu` rather than
+> With `--sysbuild`, pass the snippet as `-Dapp_SNIPPET=runtt` rather than
 > `--snippet`. Sysbuild applies `--snippet` to **every** image, which would
 > enable MCUmgr, this module and a dual-CDC composite inside MCUboot.
 
@@ -63,8 +63,8 @@ descriptor**:
 
 | Channel | Interface string | Carries |
 |---|---|---|
-| management | `balena-mcu-mgmt` | SMP |
-| log | `balena-mcu-log` | application output, verbatim |
+| management | `runtt-mgmt` | SMP |
+| log | `runtt-log` | application output, verbatim |
 
 Set declaratively in devicetree; the `zephyr,cdc-acm-uart` binding's `label`
 becomes `iInterface`:
@@ -73,11 +73,11 @@ becomes `iInterface`:
 &zephyr_udc0 {
 	cdc_acm_mgmt: cdc_acm_mgmt {
 		compatible = "zephyr,cdc-acm-uart";
-		label = "balena-mcu-mgmt";
+		label = "runtt-mgmt";
 	};
 	cdc_acm_log: cdc_acm_log {
 		compatible = "zephyr,cdc-acm-uart";
-		label = "balena-mcu-log";
+		label = "runtt-log";
 	};
 };
 / {
@@ -97,7 +97,7 @@ the part of the USB identity the firmware contract genuinely controls.
 
 ### Single-channel variant
 
-`BALENA_MCU_CHANNELS=1` is legitimate for targets with one serial interface
+`RUNTT_CHANNELS=1` is legitimate for targets with one serial interface
 (ESP32-C3 class) and for bring-up over a debug probe's UART bridge. Log output
 then shares the management link, which the console framing (§4) tolerates —
 lines that are not SMP frames are log text.
@@ -164,7 +164,7 @@ lines per packet — `ceil(MTU * 4/3 / 124)`.
 every client silently falls back to assumed frame sizes.
 
 `img` is required only where the board has a secondary slot to stage into. A
-board without one (`BALENA_MCU_IMG_MGMT=n`) is a **bring-up configuration**: it
+board without one (`RUNTT_IMG_MGMT=n`) is a **bring-up configuration**: it
 can be identified and its logs read, but it cannot receive an update. It is not
 a shippable configuration.
 
@@ -178,13 +178,13 @@ command **0**, op **read**. Request is an empty CBOR map. Response:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `contract` | tstr | this document's version, e.g. `"1.2.0"` |
+| `contract` | tstr | this document's version, e.g. `"2.0.0"` |
 | `board` | tstr | `CONFIG_BOARD_TARGET`, e.g. `rpi_pico/rp2040` |
 | `app_version` | tstr | the application's own version |
 | `channels` | uint | 1 or 2, per §3 |
 | `img` | bool | whether the image group is implemented, i.e. whether this device can be updated at all |
-| `idle` | bool | true only for `balena-mcu-idle`, the provisioning placeholder — the board is working but has never received firmware |
-| `app_healthy` | bool | **present only if** `BALENA_MCU_HEALTH=y` (§7) |
+| `idle` | bool | true only for `runtt-idle`, the provisioning placeholder — the board is working but has never received firmware |
+| `app_healthy` | bool | **present only if** `RUNTT_HEALTH=y` (§7) |
 
 The runtime calls this **after echo and before any write**, and logs the result.
 
@@ -215,7 +215,7 @@ broken one.
 SMP echo proves the **kernel** is scheduling. It does not prove the application
 thread is alive — an app deadlocked in its own logic answers echo perfectly.
 
-`BALENA_MCU_HEALTH=y` plus calling `balena_mcu_health_feed()` from the
+`RUNTT_HEALTH=y` plus calling `runtt_health_feed()` from the
 application's main loop extends the host's confirm gate from "kernel alive" to
 "application alive". Optional, and firmware that never calls it reports healthy
 rather than failing closed.
@@ -284,10 +284,10 @@ Transport-prefixed from the outset, so other transports slot in without breaking
 existing labels:
 
 ```
-io.balena.mcu.target: usb:3-6            # kernel USB port path
-io.balena.mcu.target: usb:feather-01     # ...or the board's own serial
-io.balena.mcu.target: tty:/dev/ttyACM0   # bare serial, a simulator's pty, a probe's bridge
-io.balena.mcu.target: can:vcan0/0x42     # SocketCAN interface and ISO-TP node id
+dev.runtt.target: usb:3-6            # kernel USB port path
+dev.runtt.target: usb:feather-01     # ...or the board's own serial
+dev.runtt.target: tty:/dev/ttyACM0   # bare serial, a simulator's pty, a probe's bridge
+dev.runtt.target: can:vcan0/0x42     # SocketCAN interface and ISO-TP node id
 ```
 
 ### The two `usb:` forms, and how they are told apart
@@ -331,7 +331,7 @@ would require discovering which id answers to which serial, and sweeping 2046
 identifiers is not viable; a broadcast enumeration protocol would be new contract
 surface for no current benefit.
 
-An unprefixed label is an **error**, not a guess. `io.balena.mcu.skip-if-same-hash`
+An unprefixed label is an **error**, not a guess. `dev.runtt.skip-if-same-hash`
 (default on) suppresses redeploying an image the device already runs, confirmed.
 
 ### Board identity, and why the node id is not a build setting
@@ -391,7 +391,7 @@ A `can:` label carries a single node id, and the device derives two more from it
 
 One number rather than three settings, so the label cannot drift out of step with
 the firmware. **All three are reserved whether or not the firmware was built with
-`CONFIG_BALENA_MCU_CAN_LOG`**, so enabling logging later cannot collide with a
+`CONFIG_RUNTT_CAN_LOG`**, so enabling logging later cannot collide with a
 neighbour already on the bus. Give each board on a bus an id at least three apart.
 
 Standard 11-bit identifiers only — the device filters with `.std_id` and the host
@@ -415,7 +415,7 @@ consumer must accept:
   priority**, so an upload in progress wins the bus against chatty logs.
 
 A CAN target may instead name a serial console explicitly with
-`io.balena.mcu.log-target: tty:/dev/ttyACM0`, which overrides the bus channel —
+`dev.runtt.log-target: tty:/dev/ttyACM0`, which overrides the bus channel —
 a board managed over CAN whose console comes back over a wire.
 
 ### Sharing the bus with application data
@@ -433,7 +433,7 @@ carrying SMP, its raw socket carrying the console, and an application pair
 exchanging their own ids — during a live deploy:
 
 ```
-SMP   echo -> "balena";  describe -> contract 1.2.0
+SMP   echo -> "runtt";  describe -> contract 2.0.0
 APP   sent=179 received=179          <- no loss
 LOGS  console lines streaming throughout
 ```
@@ -505,8 +505,8 @@ Rules key off the interface string descriptors, never VID/PID, and are numbered
 after systemd's `60-serial.rules` because they consume its `ID_PATH_TAG`:
 
 ```udev
-SUBSYSTEM=="tty", ATTRS{interface}=="balena-mcu-mgmt", \
-  ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="balena-mcu/$env{ID_PATH_TAG}-mgmt"
+SUBSYSTEM=="tty", ATTRS{interface}=="runtt-mgmt", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="runtt/$env{ID_PATH_TAG}-mgmt"
 ```
 
 `ID_MM_DEVICE_IGNORE=1` is load-bearing, not defensive. ModemManager probes new
@@ -514,7 +514,7 @@ CDC-ACM devices with AT commands; one probe landing mid-upload is a corrupted
 transfer and a genuine heisenbug. It has been observed tagging a contract-shaped
 device `ID_MM_CANDIDATE=1` on an ordinary Ubuntu workstation.
 
-The resulting `/dev/balena-mcu/` tree doubles as the runtime's discovery
+The resulting `/dev/runtt/` tree doubles as the runtime's discovery
 inventory, and keeps arbitrary customer serial devices out of scope by
 construction.
 
@@ -535,6 +535,7 @@ for us.
 
 | Version | Changes |
 |---|---|
+| 2.0.0 | **Breaking: the project was renamed from `balena-mcu` to `runtt`, and the contract carries the name in three places.** USB interface string descriptors are now `runtt-mgmt` / `runtt-log`; OCI annotations moved from `io.balena.mcu.*` to `dev.runtt.*`; the identity record magic changed from `"blna"` to `"rntt"`. Also adds board identity in flash (§9) and the CAN transport with its three-identifier addressing. A v1 board under a v2 host fails at *resolution* — "none advertising the runtt-mgmt interface descriptor" — rather than misbehaving, which is the right symptom; reflash and re-provision it. |
 | 1.2.0 | `describe` gains `idle`, so a freshly provisioned board reports as such instead of looking like unrecognised firmware. Additive and backward compatible. |
 | 1.1.0 | `describe` gains `img`. Additive and backward compatible: a host seeing contract 1.0.0 firmware finds the field absent and should treat that as unknown rather than false. Added after a real board reported a bare `MGMT_ERR_ENOTSUP` where it could have explained itself. |
 | 1.0.0 | Initial contract: dual CDC-ACM with string-descriptor identity, SMP over console framing, os/img groups, `describe` at group 64, optional health. |

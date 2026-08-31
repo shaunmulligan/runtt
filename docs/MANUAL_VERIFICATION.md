@@ -19,7 +19,7 @@ own eyes because they're the load-bearing claims:
 ## Setup
 
 ```bash
-cd ~/mcu-runtime
+cd ~/runtt
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 export ZEPHYR_BASE="$PWD/zephyr" ZEPHYR_TOOLCHAIN_VARIANT=host
 
@@ -42,8 +42,8 @@ device being correct, not an obstacle.
 ```bash
 head -c 8192 /dev/urandom > payload.bin
 
-python3 ~/mcu-runtime/bootloader/mcuboot/scripts/imgtool.py sign \
-  --key ~/mcu-runtime/bootloader/mcuboot/root-ec-p256.pem \
+python3 ~/runtt/bootloader/mcuboot/scripts/imgtool.py sign \
+  --key ~/runtt/bootloader/mcuboot/root-ec-p256.pem \
   --header-size 0x200 --pad-header --align 4 \
   --version 2.0.0 --slot-size 0x69000 \
   payload.bin app.signed.bin
@@ -59,8 +59,8 @@ regardless (see §9), so what matters is that the bytes form a valid MCUboot ima
 ## 2. Note the digest the device will report
 
 ```bash
-python3 ~/mcu-runtime/bootloader/mcuboot/scripts/imgtool.py verify \
-  --key ~/mcu-runtime/bootloader/mcuboot/root-ec-p256.pem app.signed.bin
+python3 ~/runtt/bootloader/mcuboot/scripts/imgtool.py verify \
+  --key ~/runtt/bootloader/mcuboot/root-ec-p256.pem app.signed.bin
 ```
 
 ```
@@ -96,7 +96,7 @@ cat > bundle/config.json <<'JSON'
     "terminal": false
   },
   "root": { "path": "rootfs", "readonly": true },
-  "annotations": { "io.balena.mcu.target": "tty:/tmp/manual/mgmt" }
+  "annotations": { "dev.runtt.target": "tty:/tmp/manual/mgmt" }
 }
 JSON
 ```
@@ -111,7 +111,7 @@ Two fields carry all the meaning:
 ## 4. Start native_sim
 
 ```bash
-~/mcu-runtime/build/zephyr/zephyr.exe \
+~/runtt/build/zephyr/zephyr.exe \
   --uart_attach_uart_cmd='ln -sf %s /tmp/manual/mgmt' \
   --uart_1_attach_uart_cmd='ln -sf %s /tmp/manual/log' \
   --flash=/tmp/manual/flash.bin &
@@ -121,7 +121,7 @@ Two fields carry all the meaning:
 uart connected to pseudotty: /dev/pts/284
 uart_1 connected to pseudotty: /dev/pts/285
 *** Booting Zephyr OS build dccb09599635 ***
-[00:00:00.000,000] <inf> app: balena-mcu template app 0.1.0 starting on native_sim/native/64
+[00:00:00.000,000] <inf> app: runtt template app 0.1.0 starting on native_sim/native/64
 ```
 
 Two things to notice.
@@ -158,7 +158,7 @@ timeout 5 cat log
 
 ```
 *** Booting Zephyr OS build dccb09599635 ***
-[00:00:00.000,000] <inf> app: balena-mcu template app 0.1.0 starting on native_sim/native/64
+[00:00:00.000,000] <inf> app: runtt template app 0.1.0 starting on native_sim/native/64
 [00:00:00.000,000] <inf> app: alive, tick 0
 [00:00:02.010,000] <inf> app: alive, tick 1
 ```
@@ -176,7 +176,7 @@ channel were dead.
 ## 6. Look at the flash before deploying
 
 ```bash
-~/mcu-runtime/scripts/flash-inspect.py flash.bin
+~/runtt/scripts/flash-inspect.py flash.bin
 ```
 
 ```
@@ -198,8 +198,8 @@ The two verbs a container engine would call. `create` forks the resident proxy a
 exits; `start` releases it to do the work.
 
 ```bash
-cd ~/mcu-runtime
-BIN=./target/debug/mcu-runtime
+cd ~/runtt
+BIN=./target/debug/runtt
 $BIN --root /tmp/manual/state create \
      --bundle /tmp/manual/bundle --pid-file /tmp/manual/pid manual \
      > /tmp/manual/rt.log 2>&1
@@ -223,8 +223,8 @@ $BIN --root /tmp/manual/state state manual | python3 -m json.tool
     "pid": 147145,
     "bundle": "/tmp/manual/bundle",
     "annotations": {
-        "io.balena.mcu.firmware-path": "/tmp/manual/bundle/rootfs/app.signed.bin",
-        "io.balena.mcu.target": "tty:/tmp/manual/mgmt"
+        "dev.runtt.firmware-path": "/tmp/manual/bundle/rootfs/app.signed.bin",
+        "dev.runtt.target": "tty:/tmp/manual/mgmt"
     }
 }
 ```
@@ -238,14 +238,14 @@ cat /tmp/manual/rt.log
 ```
 
 ```
-INFO mcu_runtime::proxy: resolved target mgmt=/tmp/manual/mgmt log=None
+INFO runtt::proxy: resolved target mgmt=/tmp/manual/mgmt log=None
 mcu: single channel; application logs share the management link
-INFO mcu_runtime::flash: deploying firmware target="tty:/tmp/manual/mgmt" bytes=8854
+INFO runtt::flash: deploying firmware target="tty:/tmp/manual/mgmt" bytes=8854
      version=2.0.0+0 digest="a1ae4888bc70c7ca663c6d5f8d4bb8f125b25cdf6a9ab7ccb92a3eb899f47ff4"
 mcu: uploading 8854/8854 bytes (100%)
 WARN mcumgr_toolkit::client: Device did not perform image checksum verification
 mcu: image staged and marked test, resetting
-mcu-runtime: the image is staged and marked pending, but nothing swapped it in: no image
+runtt: the image is staged and marked pending, but nothing swapped it in: no image
   is active after the reset. On a target with no bootloader this is expected and
   swap/confirm are unreachable by construction (native_sim cannot chain-load MCUboot).
   On real hardware it means MCUboot did not run -- check it is actually flashed, and
@@ -277,7 +277,7 @@ The runtime does a stronger check anyway — see step 8.
 The claim worth checking independently. `flash.bin` is a plain host file:
 
 ```bash
-~/mcu-runtime/scripts/flash-inspect.py /tmp/manual/flash.bin \
+~/runtt/scripts/flash-inspect.py /tmp/manual/flash.bin \
   --expect-image /tmp/manual/app.signed.bin
 ```
 
@@ -337,7 +337,7 @@ grep -c "Booting Zephyr OS" /tmp/manual/sim.out    # 2
 ## 10. Clean up
 
 ```bash
-./target/debug/mcu-runtime --root /tmp/manual/state delete --force manual
+./target/debug/runtt --root /tmp/manual/state delete --force manual
 kill %1      # the simulator
 ```
 
@@ -375,7 +375,7 @@ policy on a real device.
 >
 > If the Docker path fails with `IMG_MGMT_ERR_HASH_NOT_FOUND` or a missing
 > `version=`, the registered binary is stale — Docker runs
-> `/usr/local/bin/mcu-runtime`, not what you just built. The script detects this
+> `/usr/local/bin/runtt`, not what you just built. The script detects this
 > and tells you; re-run `sudo scripts/register-docker.sh`.
 
 ## What this does and doesn't prove
@@ -412,16 +412,16 @@ git -C bootloader/mcuboot submodule update --init --depth 1 ext/mbedtls ext/tiny
 For error paths, the mock is quicker and can inject faults on demand:
 
 ```bash
-./target/debug/smp-mock --symlink /tmp/mock-tty &
+./target/debug/runtt-mock --symlink /tmp/mock-tty &
 # then point a bundle at tty:/tmp/mock-tty and deploy as above
 
-./target/debug/smp-mock --help          # the available faults
-./target/debug/smp-mock --fault bad-hash --symlink /tmp/mock-tty
+./target/debug/runtt-mock --help          # the available faults
+./target/debug/runtt-mock --fault bad-hash --symlink /tmp/mock-tty
 ```
 
 Unlike native_sim the mock *does* model swap and revert, so it can show you an
 unconfirmed image rolling back — which is the case real hardware is needed for
-otherwise. `cargo test -p smp-mock` covers that state machine directly.
+otherwise. `cargo test -p runtt-mock` covers that state machine directly.
 
 ---
 
@@ -440,7 +440,7 @@ SHA-256. See step 2.
 timeout on the host — the transport MTU and `NETBUF_SIZE` disagree. The
 MCUmgr-parameters command reports `NETBUF_SIZE`, and the client sizes its frames
 from that, but the UART transport enforces its own MTU (default 256). They're
-pinned equal in `balena-mcu.conf`; if you change one, change both. Also note each
+pinned equal in `runtt.conf`; if you change one, change both. Also note each
 received *line* holds a whole RX buffer until reassembly, so `RX_BUF_COUNT` has to
 cover lines-per-packet — not merely satisfy the documented
 `COUNT * SIZE >= MTU`.
@@ -449,7 +449,7 @@ cover lines-per-packet — not merely satisfy the documented
 argv, so it re-fires every reboot. Delete `flash.bin` instead.
 
 **`Device or resource busy` opening the pty** — something still holds it. A
-previous proxy may be orphaned: `pgrep -af 'mcu-runtime.* proxy'`, then kill it.
+previous proxy may be orphaned: `pgrep -af 'runtt.* proxy'`, then kill it.
 (`TIOCEXCL` is deliberately disabled in the runtime for a related reason — see
 `docs/OCI_COMPLIANCE.md`.)
 

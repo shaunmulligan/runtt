@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a balena-mcu identity record.
+"""Build a runtt identity record.
 
 The record carries a board's CAN node id and serial, and lives at the start of
 `storage_partition` -- outside both MCUboot slots, so a firmware update cannot
@@ -11,7 +11,7 @@ since firmware ships as an OCI image it makes the *service image* board-specific
 too. Per-board images defeat deltas and multiply the registry.
 
 The layout is contractual; docs/WIRE_CONTRACT.md carries the same table, and
-firmware/balena-mcu/include/balena_mcu/identity.h is the other implementation.
+firmware/runtt/include/runtt/identity.h is the other implementation.
 Extend only by claiming reserved space and bumping the version.
 
     # write a record to a file, for a provisioning image
@@ -26,7 +26,7 @@ import re
 import struct
 import sys
 
-MAGIC = 0x616E6C62  # "blna" little-endian
+MAGIC = 0x74746E72  # "rntt" little-endian
 VERSION = 1
 SERIAL_LEN = 16
 RECORD_LEN = 32

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Register mcu-runtime with the local Docker daemon as a runc-style runtime.
+# Register runtt with the local Docker daemon as a runc-style runtime.
 #
 # This is the phase-0 milestone check: Docker's containerd-shim-runc-v2 invokes
 # our binary over the same path a balenaOS device will use, so if it works here
@@ -9,8 +9,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN_SRC="$REPO/target/debug/mcu-runtime"
-BIN_DST="/usr/local/bin/mcu-runtime"
+BIN_SRC="$REPO/target/debug/runtt"
+BIN_DST="/usr/local/bin/runtt"
 CONF="/etc/docker/daemon.json"
 
 [[ $EUID -eq 0 ]] || { echo "must run as root (sudo $0)" >&2; exit 1; }
@@ -34,14 +34,14 @@ try:
     conf = json.load(open(conf_path))
 except Exception:
     conf = {}
-conf.setdefault("runtimes", {})["mcu-runtime"] = {
+conf.setdefault("runtimes", {})["runtt"] = {
     "path": bin_path,
     # Diagnostic for phase 0: the engine does not forward a user shell's
     # environment, so the trace path has to come in as a runtime arg.
     "runtimeArgs": ["--mcu-trace", "/tmp/mcu-trace-docker.jsonl"],
 }
 json.dump(conf, open(conf_path, "w"), indent=2)
-print(f"registered mcu-runtime in {conf_path}")
+print(f"registered runtt in {conf_path}")
 PY
 
 systemctl restart docker

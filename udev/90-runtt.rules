@@ -1,0 +1,48 @@
+# balena MCU runtime — device access and contract-keyed device tree.
+#
+# Numbered 90 so it runs after systemd's stock 60-serial.rules, whose
+# ID_PATH / ID_PATH_TAG variables we consume.
+#
+# Install: sudo install -m 0644 udev/90-runtt.rules /etc/udev/rules.d/
+#          sudo udevadm control --reload && sudo udevadm trigger
+
+# --- Raspberry Pi Debug Probe (2e8a:000c) ---------------------------------
+# CMSIS-DAP v2 bulk interface, reached through libusb by probe-rs/pyOCD/OpenOCD.
+# Ubuntu leaves this root:root 0664, so a read-write open fails as a normal user.
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="000c", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# The probe's CDC-ACM UART bridge. ID_MM_DEVICE_IGNORE is load-bearing: a
+# ModemManager AT probe landing mid-SMP-upload is a corrupted transfer.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="000c", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", SYMLINK+="runtt/probe-uart"
+
+# --- RP2040 / RP2350 in BOOTSEL ROM-bootloader mode (picotool) -------------
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="0003", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="2e8a", ATTR{idProduct}=="000f", \
+  MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# --- Contract-keyed device tree -------------------------------------------
+# Match on our interface STRING DESCRIPTORS, not VID/PID: customers may ship
+# their own VID, and the descriptor is the part the firmware contract controls.
+# The resulting /dev/runtt/ tree is the runtime's discovery inventory and
+# keeps arbitrary customer serial devices out of scope by construction.
+SUBSYSTEM=="tty", ATTRS{interface}=="runtt-mgmt", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", MODE="0660", GROUP="plugdev", \
+  SYMLINK+="runtt/$env{ID_PATH_TAG}-mgmt"
+SUBSYSTEM=="tty", ATTRS{interface}=="runtt-log", \
+  ENV{ID_MM_DEVICE_IGNORE}="1", MODE="0660", GROUP="plugdev", \
+  SYMLINK+="runtt/$env{ID_PATH_TAG}-log"
+
+# A second view of the same devices, keyed by the board's own serial rather than
+# by where it is plugged in. Additive: the by-port links above are unchanged.
+#
+# The runtime does not need these -- it resolves `usb:<serial>` by reading sysfs
+# directly -- but they make `ls /dev/runtt/by-serial/` a legible inventory,
+# and they are how a human confirms a board took its provisioned name.
+SUBSYSTEM=="tty", ATTRS{interface}=="runtt-mgmt", ENV{ID_SERIAL_SHORT}=="?*", \
+  SYMLINK+="runtt/by-serial/$env{ID_SERIAL_SHORT}-mgmt"
+SUBSYSTEM=="tty", ATTRS{interface}=="runtt-log", ENV{ID_SERIAL_SHORT}=="?*", \
+  SYMLINK+="runtt/by-serial/$env{ID_SERIAL_SHORT}-log"

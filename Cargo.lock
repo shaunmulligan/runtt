@@ -654,26 +654,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcu-runtime"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "libc",
- "liboci-cli",
- "nix 0.31.3",
- "oci-spec",
- "serde",
- "serde_json",
- "serialport",
- "smp-client",
- "smp-mock",
- "tracing",
- "tracing-subscriber",
- "transport",
-]
-
-[[package]]
 name = "mcumgr-toolkit"
 version = "0.16.0"
 dependencies = [
@@ -927,6 +907,68 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libc",
+ "liboci-cli",
+ "nix 0.31.3",
+ "oci-spec",
+ "runtt-mock",
+ "runtt-smp",
+ "runtt-transport",
+ "serde",
+ "serde_json",
+ "serialport",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "runtt-mock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "ciborium",
+ "clap",
+ "crc",
+ "runtt-smp",
+ "runtt-transport",
+ "serialport",
+ "sha2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "runtt-smp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "mcumgr-toolkit",
+ "runtt-transport",
+ "serde",
+ "serialport",
+ "sha2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "runtt-transport"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serialport",
+ "tracing",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1058,38 +1100,6 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
-
-[[package]]
-name = "smp-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "mcumgr-toolkit",
- "serde",
- "serialport",
- "sha2",
- "tracing",
- "tracing-subscriber",
- "transport",
-]
-
-[[package]]
-name = "smp-mock"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "ciborium",
- "clap",
- "crc",
- "serialport",
- "sha2",
- "smp-client",
- "tracing",
- "tracing-subscriber",
- "transport",
-]
 
 [[package]]
 name = "strsim"
@@ -1259,16 +1269,6 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
-]
-
-[[package]]
-name = "transport"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "libc",
- "serialport",
- "tracing",
 ]
 
 [[package]]

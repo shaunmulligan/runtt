@@ -116,8 +116,8 @@ cd mcumgr-toolkit
 git checkout -b external-transports
 
 # 2. Apply the source changes. See the caveat below before applying Cargo.toml.
-patch -p1 --dry-run < /path/to/mcu-runtime/docs/patches/mcumgr-toolkit-external-transports.patch
-patch -p1           < /path/to/mcu-runtime/docs/patches/mcumgr-toolkit-external-transports.patch
+patch -p1 --dry-run < /path/to/runtt/docs/patches/mcumgr-toolkit-external-transports.patch
+patch -p1           < /path/to/runtt/docs/patches/mcumgr-toolkit-external-transports.patch
 
 # 3. Prove it.
 cargo test
@@ -127,7 +127,7 @@ cargo fmt --check
 # 4. Commit and open the PR. The patch file's header is written to be the
 #    commit message, so this keeps it.
 git add -A
-git commit -F <(sed -n '1,/^---$/p' /path/to/mcu-runtime/docs/patches/mcumgr-toolkit-external-transports.patch | head -n -1)
+git commit -F <(sed -n '1,/^---$/p' /path/to/runtt/docs/patches/mcumgr-toolkit-external-transports.patch | head -n -1)
 git push -u origin external-transports
 gh pr create --repo Finomnis/mcumgr-toolkit --fill
 ```

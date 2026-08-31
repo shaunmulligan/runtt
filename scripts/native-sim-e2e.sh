@@ -17,7 +17,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-RUNTIME="${RUNTIME:-$REPO/target/debug/mcu-runtime}"
+RUNTIME="${RUNTIME:-$REPO/target/debug/runtt}"
 SIM="${SIM:-$REPO/build/zephyr/zephyr.exe}"
 WORK="$(mktemp -d)"
 trap 'kill %1 2>/dev/null || true; rm -rf "$WORK"' EXIT
@@ -56,7 +56,7 @@ cat > "$WORK/bundle/config.json" <<JSON
     "terminal": false
   },
   "root": { "path": "rootfs", "readonly": true },
-  "annotations": { "io.balena.mcu.target": "tty:$WORK/mgmt" }
+  "annotations": { "dev.runtt.target": "tty:$WORK/mgmt" }
 }
 JSON
 
@@ -110,7 +110,7 @@ set -e
 # races: the reset has been requested but not yet performed, and tearing the
 # container down here would kill the proxy mid-reboot.
 for _ in $(seq 1 80); do
-  grep -qE "mcu-runtime: |image confirmed" "$WORK/rt.log" && break
+  grep -qE "runtt: |image confirmed" "$WORK/rt.log" && break
   sleep 0.5
 done
 # Give the simulator a moment to finish re-execing and print its second banner.

@@ -1,4 +1,4 @@
-# mcu-runtime
+# runtt
 
 An OCI runtime that deploys firmware to a discrete microcontroller instead of
 running a container.
@@ -66,10 +66,10 @@ Not built:
 
 | Path | What |
 |---|---|
-| `crates/mcu-runtime` | the runtime binary: OCI verbs, resident proxy, deploy sequence |
+| `crates/runtt` | the runtime binary: OCI verbs, resident proxy, deploy sequence |
 | `crates/smp-client` | the five-method SMP surface, over `mcumgr-toolkit` |
 | `crates/transport` | the transport seam: USB now, CAN later |
-| `crates/smp-mock` | SMP server with injectable faults, for testing error paths |
+| `crates/runtt-mock` | SMP server with injectable faults, for testing error paths |
 | `docs/WALKTHROUGH.md` | build two releases and switch an MCU between them with `docker run` |
 | `docs/UPSTREAM_MCUMGR_TOOLKIT.md` | a one-method patch to submit upstream, and why |
 | `docs/ROADMAP.md` | where this is and what is worth doing next |
@@ -83,7 +83,7 @@ Not built:
 | `docs/HARDWARE_GATE.md` | why CI is simulated-only, and the design for a hardware gate |
 | `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need (future cycle) |
 | `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: MCUboot hangs in find_last_idx on RP2040 |
-| `udev/90-balena-mcu.rules` | device access and the contract-keyed device tree |
+| `udev/90-runtt.rules` | device access and the contract-keyed device tree |
 | `scripts/setup-prereqs.sh` | one-time host setup for hardware work (`--check` to just verify) |
 | `scripts/build-feather.sh` | build for the Feather nRF52840: bringup, mcuboot, provision |
 | `scripts/backup-nrf52840.sh` | back up flash and UICR before the first destructive flash |
@@ -98,7 +98,7 @@ For the real thing on a board, follow `docs/WALKTHROUGH.md` instead.
 cargo build
 
 # Stand up a mock device on a pty.
-./target/debug/smp-mock --symlink /tmp/mcu-tty &
+./target/debug/runtt-mock --symlink /tmp/mcu-tty &
 
 # Build a firmware image.
 mkdir -p /tmp/fw && head -c 8192 /dev/urandom > /tmp/fw/app.signed.bin
@@ -106,19 +106,19 @@ printf 'FROM scratch\nADD app.signed.bin /\nENTRYPOINT ["app.signed.bin"]\n' > /
 podman build -t mcu-fw:demo /tmp/fw
 
 # Deploy to it. podman takes --runtime=<path> with no daemon config and no root.
-podman --runtime="$PWD/target/debug/mcu-runtime" run --rm \
-  --annotation io.balena.mcu.target="tty:$(readlink -f /tmp/mcu-tty)" \
+podman --runtime="$PWD/target/debug/runtt" run --rm \
+  --annotation dev.runtt.target="tty:$(readlink -f /tmp/mcu-tty)" \
   mcu-fw:demo
 ```
 
 For Docker, register the runtime once (`sudo scripts/register-docker.sh`), then
-`docker run --runtime mcu-runtime --network none ...`. A firmware service needs
+`docker run --runtime runtt --network none ...`. A firmware service needs
 no network namespace.
 
 Inject a fault to watch an error path:
 
 ```bash
-./target/debug/smp-mock --fault bad-hash --symlink /tmp/mcu-tty
+./target/debug/runtt-mock --fault bad-hash --symlink /tmp/mcu-tty
 ```
 
 ## Placement
@@ -127,17 +127,17 @@ The target comes from an OCI annotation, transport-prefixed from day one so
 other transports slot in without breaking existing labels:
 
 ```
-io.balena.mcu.target: usb:3-6          # kernel USB port path
-io.balena.mcu.target: tty:/dev/ttyACM0 # bare serial, or a simulator's pty
-io.balena.mcu.target: can:vcan0/0x42   # named, not implemented this cycle
+dev.runtt.target: usb:3-6          # kernel USB port path
+dev.runtt.target: tty:/dev/ttyACM0 # bare serial, or a simulator's pty
+dev.runtt.target: can:vcan0/0x42   # named, not implemented this cycle
 ```
 
 `usb:` resolution reads sysfs directly and identifies the management and log
 channels by their **USB interface string descriptor**
-(`balena-mcu-mgmt` / `balena-mcu-log`), never by interface number — customers may
+(`runtt-mgmt` / `runtt-log`), never by interface number — customers may
 ship their own VID, and the descriptor is the part the firmware contract owns.
 
-Also honoured: `io.balena.mcu.skip-if-same-hash` (default on). Redeploying an
+Also honoured: `dev.runtt.skip-if-same-hash` (default on). Redeploying an
 image the device already runs, confirmed, is a no-op.
 
 ## The safety invariant

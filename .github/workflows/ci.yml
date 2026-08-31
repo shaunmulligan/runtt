@@ -57,14 +57,14 @@ jobs:
           DOCKER
           podman build -t mcu-fw:ci /tmp/fw
 
-          ./target/release/smp-mock --symlink /tmp/ci-tty &
+          ./target/release/runtt-mock --symlink /tmp/ci-tty &
           MOCK=$!
           for _ in $(seq 1 50); do [ -e /tmp/ci-tty ] && break; sleep 0.2; done
           PTS=$(readlink -f /tmp/ci-tty)
 
           set +e
-          timeout 60 podman --runtime="$PWD/target/release/mcu-runtime" run --rm \
-            --annotation io.balena.mcu.target="tty:$PTS" \
+          timeout 60 podman --runtime="$PWD/target/release/runtt" run --rm \
+            --annotation dev.runtt.target="tty:$PTS" \
             mcu-fw:ci 2>&1 | tee /tmp/ci-run.log
           set -e
           kill $MOCK 2>/dev/null || true

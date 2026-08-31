@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase-0 smoke test: drive mcu-runtime through Docker and capture exactly what
+# Phase-0 smoke test: drive runtt through Docker and capture exactly what
 # the shim passes us. Run as a normal user, after scripts/register-docker.sh.
 set -euo pipefail
 
@@ -22,12 +22,12 @@ echo "built $IMAGE"
 sudo rm -f "$TRACE" 2>/dev/null || rm -f "$TRACE" 2>/dev/null || true
 
 echo
-echo "── docker run --runtime mcu-runtime ──"
+echo "── docker run --runtime runtt ──"
 set +e
 docker run --rm \
-  --runtime mcu-runtime \
+  --runtime runtt \
   --network none \
-  --annotation io.balena.mcu.target=usb:3-6 \
+  --annotation dev.runtt.target=usb:3-6 \
   "$IMAGE"
 echo "container exit code: $?"
 set -e

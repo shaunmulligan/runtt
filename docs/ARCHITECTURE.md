@@ -29,16 +29,16 @@ One service, one MCU, exclusive occupancy.
   balena-engine / docker / podman
             │  create/start/state/kill/delete   (runc-style CLI)
             ▼
-      mcu-runtime  ◄─────────── the container process, from the engine's view
+      runtt  ◄─────────── the container process, from the engine's view
             │
             │  SMP over a byte pipe
             ▼
    ┌──────────────────┐        ┌──────────────────────────┐
    │  transport       │  USB   │  MCU                     │
    │  usb: / tty:     ├───────►│  MCUboot  +  application │
-   │  can: (later)    │        │  balena-mcu module       │
+   │  can: (later)    │        │  runtt module       │
    └──────────────────┘        └──────────────────────────┘
-        two channels:  balena-mcu-mgmt (SMP)  ·  balena-mcu-log (stdio)
+        two channels:  runtt-mgmt (SMP)  ·  runtt-log (stdio)
 ```
 
 The runtime runs **outside** the container. That is worth dwelling on: the
@@ -63,10 +63,10 @@ whereas piping MCU logs to container stdout is our headline feature.
 
 | Crate | Responsibility |
 |---|---|
-| `mcu-runtime` | the OCI verbs, the resident proxy, the deploy sequence |
+| `runtt` | the OCI verbs, the resident proxy, the deploy sequence |
 | `smp-client` | a five-method SMP surface over `mcumgr-toolkit`, plus MCUboot image parsing |
 | `transport` | the byte-pipe seam: USB and bare serial now, CAN later |
-| `smp-mock` | an SMP server with injectable faults, for testing error paths |
+| `runtt-mock` | an SMP server with injectable faults, for testing error paths |
 
 Two boundaries carry the future flexibility, and both were cheap to put in early:
 
@@ -121,7 +121,7 @@ everything else is arranged to preserve it.
 Which board a service is for arrives as an OCI annotation:
 
 ```
-io.balena.mcu.target: usb:3-6
+dev.runtt.target: usb:3-6
 ```
 
 Transport-prefixed from the outset, so `can:` and `tty:` slot in without breaking
@@ -143,7 +143,7 @@ The rungs each reduce what the next has to prove:
 
 | Rung | Proves | Needs |
 |---|---|---|
-| `smp-mock` | the client's error paths, deterministically | nothing |
+| `runtt-mock` | the client's error paths, deterministically | nothing |
 | MCUboot's own `sim/` | swap, revert and confirm under injected power failure | nothing |
 | Zephyr `native_sim` | the real SMP server, two channels, reset, reconnect | nothing |
 | a container engine | the OCI contract, stdio, restart policies | podman |
