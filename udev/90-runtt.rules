@@ -1,4 +1,4 @@
-# balena MCU runtime — device access and contract-keyed device tree.
+# runtt runtime — device access and contract-keyed device tree.
 #
 # Numbered 90 so it runs after systemd's stock 60-serial.rules, whose
 # ID_PATH / ID_PATH_TAG variables we consume.

@@ -1,4 +1,4 @@
-# The balena MCU wire contract
+# The runtt wire contract
 
 **Version 2.0.0**
 

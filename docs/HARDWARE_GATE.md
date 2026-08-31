@@ -29,7 +29,7 @@ genuinely narrow — but it is not empty.
 ## What only hardware can prove
 
 * USB enumeration, and interface-string-descriptor matching — the board
-  enumerates as `2fe3:0004 NordicSemiconductor balena MCU device`, an RP2040
+  enumerates as `2fe3:0004 NordicSemiconductor runtt device`, an RP2040
   claiming to be Nordic on Zephyr's VID. Nothing about that is findable by
   VID/PID; the descriptor is the whole identity.
 * Port-path → target label resolution (`usb:3-4`).
