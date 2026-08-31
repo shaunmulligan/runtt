@@ -1,10 +1,10 @@
 //! Our annotation namespace.
 //!
 //! Placement arrives as an OCI annotation on the container spec. How it gets
-//! there is not our concern — on balena the supervisor reads it from the
-//! target-state API and passes it to the engine; locally it comes from
-//! `docker run --annotation` or a runtime arg. Our side of the contract is only
-//! that we read it out of the spec.
+//! there is deliberately not our concern: locally it comes from `docker run
+//! --annotation` or a runtime arg, and an orchestrator would pass it down from
+//! its own target state. Our side of the contract is only that we read it out of
+//! the spec, which is what lets the runtime work unchanged under any engine.
 
 /// Required on the spec: the transport-prefixed placement label, e.g. `usb:3-6`.
 pub const SPEC_TARGET: &str = "dev.runtt.target";

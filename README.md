@@ -1,98 +1,62 @@
 # runtt
 
-An OCI runtime that deploys firmware to a discrete microcontroller instead of
-running a container.
+**An OCI runtime for tiny tethered devices.** It deploys firmware to a discrete
+microcontroller instead of running a container.
 
-A firmware service is a normal container image — `FROM scratch`, a signed
-MCUboot image, an entrypoint — pulled by the engine like any other image. This
-runtime is handed the bundle in place of runc. It resolves the target board,
-uploads the image over MCUmgr **SMP**, resets, and confirms only once the new
-image proves itself. It then stays resident as the container process: board logs
-go to container stdio, SMP echo heartbeats prove liveness, and losing the device
-means a non-zero exit, so the engine's restart policy does the rest.
+A firmware service is an ordinary container image — `FROM scratch`, a signed
+MCUboot image, an entrypoint — pulled by the engine like any other image. runtt is
+handed the bundle in place of runc. It resolves the target board, uploads the
+image over MCUmgr **SMP**, resets, and confirms only once the new image proves
+itself. It then stays resident as the container process: board logs go to
+container stdio, SMP echo heartbeats prove liveness, and losing the device means a
+non-zero exit, so the engine's restart policy does the rest.
 
 One service = one MCU, exclusive occupancy.
 
 ## Why this shape
 
-Today, flashing an attached MCU from a container means a privileged service
+Flashing an attached MCU from a container normally means a privileged service
 running vendor tools against `/dev/ttyUSB0` — outside releases, deltas, restart
-policies and the dashboard. Making the runtime the integration point puts
-firmware on the same rails as every other service, and the firmware container
-needs no privileges or device mappings at all, because the runtime is outside
-the container.
+policies and log capture. Making the runtime the integration point puts firmware
+on the same rails as every other service, and the firmware container needs no
+privileges and no device mappings at all, because the runtime lives outside the
+container.
 
 ## Status
 
-**The full loop works on real hardware.** Two firmware applications, each an
-ordinary container project, deployed and switched on a Raspberry Pi Pico with
-`docker run` — see `docs/WALKTHROUGH.md`, where every command and transcript was
-run against the board.
+**The full loop works on real hardware**, on two boards, through three engines.
 
-Working:
+| | |
+|---|---|
+| **Boards** | Raspberry Pi Pico (RP2040) and Adafruit Feather nRF52840, both end to end with MCUboot: upload, mark test, reset, verify, confirm |
+| **Engines** | Docker 28, podman, and the plain runc-style CLI. Also compatible with balena-engine, which is stock moby architecture |
+| **Transports** | USB CDC-ACM, bare serial, and CAN (SMP over ISO-TP) |
+| **Simulated** | Zephyr `native_sim` and a fault-injecting SMP mock with seven failure modes |
 
-- The five OCI verbs, driven by **Docker 28** and **podman**.
-- The full deploy sequence — upload, mark test, reset, verify, confirm — against
-  a mock device, **Zephyr native_sim**, and an **RP2040 with MCUboot**, end to
-  end through a container engine.
-- Firmware as a self-contained container project: `docker build .` from an
-  application directory, against a reusable builder image
-  (`firmware/examples/app1`, `app2`).
-- Provisioning over UF2 with no debug probe (`docs/PROVISIONING.md`).
-- Exclusive occupancy, restart-policy propagation, `docker logs` capture,
-  same-digest no-op redeploy.
-- A fault-injecting SMP mock with seven failure modes.
+Also working: firmware as a self-contained container project (`docker build .`
+from an application directory against a reusable builder image); per-board
+identity in flash so one image serves a fleet; provisioning over UF2 with no
+debug probe; exclusive occupancy; restart-policy propagation; `docker logs`
+capture; same-digest no-op redeploy.
 
-**In progress — Adafruit Feather nRF52840** (branch `nrf52840-bringup`). The
-board support, build and provisioning scripts are written and both example apps
-build clean against `adafruit_feather_nrf52840/nrf52840` with MCUboot. **None of
-it has run on hardware yet**, so treat it as compiled, not working.
+**Not built yet:**
 
-Not built:
-
-- **A hardware CI gate.** CI is simulated-only, deliberately; the design and its
-  traps are written up in `docs/HARDWARE_GATE.md`.
-- **CAN transport.** The target annotation is transport-prefixed for it, but
-  only `usb:` and `tty:` are implemented.
+- **A hardware CI gate.** CI is simulated-only, deliberately — the design and the
+  traps that make a naive gate worthless are in `docs/HARDWARE_GATE.md`.
+- **CAN on physical hardware.** The transport is proven end to end on a virtual
+  bus (`vcan`) and gates in CI; two boards with different CAN controllers are on
+  order to prove it is controller-agnostic. See `docs/HARDWARE_TARGETS.md`.
 - **A fleet trust root.** Everything is signed with MCUboot's *published*
-  development key, which is fine for a bench PoC and unfit for anything else.
-  See the signing-key warning in `docs/FIRMWARE_GUIDE.md`.
+  development key. Fine on a bench, unfit for anything else — see the
+  signing-key warning in `docs/FIRMWARE_GUIDE.md`.
+- **Revert on real hardware.** Exercised in MCUboot's own simulator, not yet on a
+  board.
 
 > **On CI:** `.github/workflows/ci.yml` is a well-formed file, not a running
-> system. This repo has no git remote and no tags, so it has never executed
-> anywhere. The suites it runs do pass locally.
+> system. This repo has no git remote, so it has never executed anywhere. The
+> suites it runs do pass locally.
 
-## Layout
-
-| Path | What |
-|---|---|
-| `crates/runtt` | the runtime binary: OCI verbs, resident proxy, deploy sequence |
-| `crates/smp-client` | the five-method SMP surface, over `mcumgr-toolkit` |
-| `crates/transport` | the transport seam: USB now, CAN later |
-| `crates/runtt-mock` | SMP server with injectable faults, for testing error paths |
-| `docs/WALKTHROUGH.md` | build two releases and switch an MCU between them with `docker run` |
-| `docs/UPSTREAM_MCUMGR_TOOLKIT.md` | a one-method patch to submit upstream, and why |
-| `docs/ROADMAP.md` | where this is and what is worth doing next |
-| `docs/ARCHITECTURE.md` | how it fits together, and why an OCI runtime rather than a service |
-| `docs/FIRMWARE_GUIDE.md` | getting a Zephyr app onto the platform: tree layout, build, traps |
-| `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics |
-| `docs/PROVISIONING.md` | the one physical act: getting a board manageable in the first place |
-| `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
-| `docs/MANUAL_VERIFICATION.md` | walk the native_sim flow by hand, step by step |
-| `docs/MANUAL_LOG_DEMUX.md` | verify the single-channel log demux by hand |
-| `docs/HARDWARE_GATE.md` | why CI is simulated-only, and the design for a hardware gate |
-| `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need (future cycle) |
-| `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: MCUboot hangs in find_last_idx on RP2040 |
-| `udev/90-runtt.rules` | device access and the contract-keyed device tree |
-| `scripts/setup-prereqs.sh` | one-time host setup for hardware work (`--check` to just verify) |
-| `scripts/build-feather.sh` | build for the Feather nRF52840: bringup, mcuboot, provision |
-| `scripts/backup-nrf52840.sh` | back up flash and UICR before the first destructive flash |
-| `scripts/flash-feather.sh` | provision a Feather over SWD; refuses to run without a backup |
-
-## Trying it
-
-No hardware needed — this deploys a throwaway image to a mock device on a pty.
-For the real thing on a board, follow `docs/WALKTHROUGH.md` instead.
+## Trying it, with no hardware
 
 ```bash
 cargo build
@@ -112,8 +76,8 @@ podman --runtime="$PWD/target/debug/runtt" run --rm \
 ```
 
 For Docker, register the runtime once (`sudo scripts/register-docker.sh`), then
-`docker run --runtime runtt --network none ...`. A firmware service needs
-no network namespace.
+`docker run --runtime runtt --network none ...`. A firmware service needs no
+network namespace.
 
 Inject a fault to watch an error path:
 
@@ -121,35 +85,94 @@ Inject a fault to watch an error path:
 ./target/debug/runtt-mock --fault bad-hash --symlink /tmp/mcu-tty
 ```
 
+For the real thing on a board, follow `docs/WALKTHROUGH.md` — every command and
+transcript there was run against hardware.
+
 ## Placement
 
-The target comes from an OCI annotation, transport-prefixed from day one so
-other transports slot in without breaking existing labels:
+The target comes from an OCI annotation, transport-prefixed so new transports
+slot in without breaking existing labels:
 
 ```
-dev.runtt.target: usb:3-6          # kernel USB port path
-dev.runtt.target: tty:/dev/ttyACM0 # bare serial, or a simulator's pty
-dev.runtt.target: can:vcan0/0x42   # named, not implemented this cycle
+dev.runtt.target: usb:3-6            # kernel USB port path
+dev.runtt.target: usb:feather-01     # ...or the board's own serial
+dev.runtt.target: tty:/dev/ttyACM0   # bare serial, or a simulator's pty
+dev.runtt.target: can:can0/0x45      # SocketCAN interface and ISO-TP node id
 ```
 
-`usb:` resolution reads sysfs directly and identifies the management and log
-channels by their **USB interface string descriptor**
-(`runtt-mgmt` / `runtt-log`), never by interface number — customers may
-ship their own VID, and the descriptor is the part the firmware contract owns.
+The two `usb:` forms answer different questions, and both are legitimate: a **port
+path** means *"whatever board is in this physical position"*, right when boards
+are replaceable and position defines the role; a **serial** means *"this specific
+board, wherever it is"*, and is the only form that makes a compose file portable
+between machines. They are told apart by shape, not by guessing — see
+`docs/WIRE_CONTRACT.md`.
 
-Also honoured: `dev.runtt.skip-if-same-hash` (default on). Redeploying an
-image the device already runs, confirmed, is a no-op.
+Resolution identifies the management and log channels by their **USB interface
+string descriptor** (`runtt-mgmt` / `runtt-log`), never by interface number, and
+never by VID/PID — a product may ship its own VID, and the descriptor is the part
+the firmware contract owns.
+
+Also honoured: `dev.runtt.log-target` (a serial console for a board managed over
+CAN) and `dev.runtt.skip-if-same-hash` (default on — redeploying an image the
+device already runs, confirmed, is a no-op).
 
 ## The safety invariant
 
 Confirmation is only reachable through the contract. The runtime uploads to the
-inactive slot, marks it **test**, resets, and sends **confirm** only after the
-new image enumerates, speaks SMP and heartbeats. An image that removed or broke
-the contract therefore can never be confirmed — because confirming requires the
-very capability that was lost — so MCUboot reverts it on the next reset.
+inactive slot, marks it **test**, resets, and sends **confirm** only after the new
+image enumerates, speaks SMP and heartbeats. An image that removed or broke the
+contract therefore can never be confirmed — because confirming requires the very
+capability that was lost — so MCUboot reverts it on the next reset.
 
 Contract loss is never remotely permanent, by construction.
 
----
+## Layout
 
-*Co-authored with Claude*
+| Path | What |
+|---|---|
+| `crates/runtt` | the runtime binary: OCI verbs, resident proxy, deploy sequence |
+| `crates/runtt-smp` | the five-method SMP surface, over `mcumgr-toolkit` |
+| `crates/runtt-transport` | the transport seam: USB, bare serial, CAN |
+| `crates/runtt-mock` | SMP server with injectable faults, for testing error paths |
+| `firmware/runtt` | the Zephyr module and snippet a firmware app opts into |
+| `firmware/examples/` | two example applications, each buildable with `docker build .` |
+| `udev/90-runtt.rules` | device access and the contract-keyed device tree |
+
+### Documentation
+
+| Doc | What |
+|---|---|
+| `docs/WALKTHROUGH.md` | build two releases and switch an MCU between them with `docker run` |
+| `docs/ARCHITECTURE.md` | how it fits together, and why an OCI runtime rather than a service |
+| `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics, identity |
+| `docs/FIRMWARE_GUIDE.md` | getting a Zephyr app onto the platform: tree layout, build, traps |
+| `docs/PROVISIONING.md` | the one physical act: getting a board manageable in the first place |
+| `docs/HARDWARE_TARGETS.md` | supported boards, what each needs, and boards deliberately rejected |
+| `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
+| `docs/ROADMAP.md` | where this is and what is worth doing next |
+| `docs/HARDWARE_GATE.md` | why CI is simulated-only, and the design for a hardware gate |
+| `docs/MANUAL_VERIFICATION.md` | walk the native_sim flow by hand, step by step |
+| `docs/MANUAL_LOG_DEMUX.md` | verify the single-channel log demux by hand |
+| `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need |
+| `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: unbounded loop in MCUboot's `find_last_idx` |
+| `docs/UPSTREAM_MCUMGR_TOOLKIT.md` | a patch to submit upstream, and how to submit it |
+
+## Contributing
+
+See `CONTRIBUTING.md`. In short: the test suites and the `native_sim` gates are
+the contract, `cargo clippy --all-targets` must be clean, and a change to
+anything on the wire needs `docs/WIRE_CONTRACT.md` updated in the same commit —
+there is a test that enforces the last one.
+
+## Licence
+
+Dual licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this work by you shall be dual licensed as above, without any
+additional terms or conditions.

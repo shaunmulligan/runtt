@@ -4,11 +4,15 @@ Firmware for a discrete MCU, delivered as a normal container image.
 
 ## The problem this replaces
 
-Today a customer with an MCU attached to a balena device flashes it from a
+A device with an MCU attached to it normally gets that MCU flashed from a
 privileged container running vendor tools against `/dev/ttyUSB0`. That works, and
-it sits outside everything the platform provides: no releases, no deltas, no
-restart policies, no logs in the dashboard, no rollback. The firmware is not a
-service, it is a side effect of one.
+it sits outside everything a container platform provides: no releases, no deltas,
+no restart policies, no log capture, no rollback. The firmware is not a service,
+it is a side effect of one.
+
+This is the shape whether the platform is plain Docker, a Kubernetes edge
+distribution, or a fleet manager like balena. The gap is the same one: the
+orchestrator has no idea the firmware exists.
 
 ## The idea in one paragraph
 
@@ -166,9 +170,18 @@ none, which is why the second channel exists). No serial recovery in shipped
 images; it is a bench aid, and on RP2040 the mask-ROM bootloader makes it
 unnecessary.
 
-Deep balena integration — the compose `runtime:` and `annotations:` fields, host
-extension packaging — is landing separately. The runtime targets stock Docker and
-podman, and follows from there.
+### Orchestrator integration is deliberately out of scope
+
+runtt reads placement out of the OCI spec's `annotations` map and nothing more.
+How an annotation gets there is somebody else's business: `docker run
+--annotation`, a compose file, or a fleet manager's agent reconciling target
+state. That boundary is the reason the runtime works unchanged under Docker,
+podman and balena-engine, and would work under anything else that speaks the
+runc-style CLI.
+
+Concretely, a platform wanting to drive runtt needs to do two things: pass
+`runtime: runtt` and the `dev.runtt.*` annotations through to the engine. Nothing
+in this repository depends on how.
 
 ---
 

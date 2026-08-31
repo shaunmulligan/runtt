@@ -179,7 +179,7 @@ the entire seam.**
 
 | Repo | Contents | Consumers |
 |---|---|---|
-| `runtt` | `crates/`, `udev/` | balenaOS, anyone running `docker run` |
+| `runtt` | `crates/`, `udev/` | anyone running `docker run`, podman, or a fleet manager |
 | `runtt` (west module) | `firmware/runtt/` | every customer's `west.yml` |
 | `runtt-boards` | `firmware/{idle,bringup,patches,builder}`, provisioning and flashing scripts | whoever provisions hardware |
 | `runtt-examples` | `firmware/examples/`, the walkthrough | customers learning the workflow |

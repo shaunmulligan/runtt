@@ -69,8 +69,9 @@ Against real Docker, with a `FROM scratch` + `ADD app.signed.bin /` +
 `ENTRYPOINT ["app.signed.bin"]` image:
 
 - **Placement annotation arrives.** `docker run --annotation dev.runtt.target=usb:3-6`
-  reaches `spec.annotations`. (On balena the supervisor delivers this from the
-  target-state API instead; either way the runtime only reads the spec.)
+  reaches `spec.annotations`. (An orchestrator would deliver it from its own
+  target state instead — balena's supervisor works this way — but either way the
+  runtime only ever reads the spec.)
 - **Firmware resolves from the entrypoint**, inside the real overlay rootfs.
 - **`process.terminal` is unset**, so stdio is pipes and whatever the proxy
   writes to fd 1/2 appears in `docker logs`. Confirmed across restarts.
@@ -96,7 +97,8 @@ Against real Docker, with a `FROM scratch` + `ADD app.signed.bin /` +
 The runtime runs **outside** the container — it is invoked *instead of* runc, not
 inside the sandbox. That has a pleasant consequence for hardware: the firmware
 container needs no `--device` mapping, no `privileged: true`, and no
-`io.balena.features.*` label. Nothing inside the container ever touches the MCU.
+platform-specific hardware-access label. Nothing inside the container ever
+touches the MCU.
 The only question is whether the runtime *process* can open the device node.
 
 **Rootless podman can.** Verified on Ubuntu 24.04: inside podman's rootless user
@@ -113,12 +115,12 @@ The negative case fails identically, so this is not a false positive. What gates
 hardware access is therefore the **udev rules and group membership**, not the
 choice of engine.
 
-**But prefer the root path for hardware validation.** On balenaOS, balena-engine
-runs as root and invokes the runtime as root, so `ENGINE=docker` (or
-`sudo podman`) is the faithful configuration. Rootless podman is the fast local
-loop, not the representative one — and it skips the containerd flag surface
-described above. Do at least one hardware pass on the root path before believing
-anything about on-device behaviour.
+**But prefer the root path for hardware validation.** Most production engines run
+as root and invoke the runtime as root — that is true of dockerd and of
+balena-engine — so `ENGINE=docker` (or `sudo podman`) is the faithful
+configuration. Rootless podman is the fast local loop, not the representative one,
+and it skips the containerd flag surface described above. Do at least one hardware
+pass on the root path before believing anything about on-device behaviour.
 
 ## Device acquisition: why `TIOCEXCL` is off
 

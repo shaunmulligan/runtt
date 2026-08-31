@@ -2,7 +2,7 @@
 # Register runtt with the local Docker daemon as a runc-style runtime.
 #
 # This is the phase-0 milestone check: Docker's containerd-shim-runc-v2 invokes
-# our binary over the same path a balenaOS device will use, so if it works here
+# our binary over the same path any production engine will use, so if it works here
 # it works there.
 #
 # Run with sudo. Idempotent; keeps a backup of any existing daemon.json.
