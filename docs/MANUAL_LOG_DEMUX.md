@@ -108,7 +108,7 @@ Then build a bundle against `tty:$PTS` exactly as in §1 and run
 
 ```
 mcu: single channel; application logs are demultiplexed from the management link
-mcu: device is native_sim/native/64 running 0.1.0 (contract 1.2.0, 1 channel)
+mcu: device is native_sim/native/64 running 0.1.0 (contract 2.0.0, 1 channel)
 *** Booting Zephyr OS build dccb09599635 ***
 [00:00:00.000,000] <inf> app: runtt template app 0.1.0 starting on native_sim/native/64
 [00:00:00.000,000] <inf> app: alive, tick 0

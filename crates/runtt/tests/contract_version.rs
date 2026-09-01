@@ -85,6 +85,66 @@ fn the_runtime_accepts_the_documented_major() {
     );
 }
 
+/// Every doc, not just the contract.
+///
+/// A stale `contract 1.2.0` sat in three transcripts across WALKTHROUGH, ROADMAP
+/// and MANUAL_LOG_DEMUX after the 2.0.0 bump, because the guard below only ever
+/// read WIRE_CONTRACT.md. A transcript claiming a version the software does not
+/// report is a small lie that makes a reader doubt the rest of the document, so
+/// it is worth a test.
+///
+/// Only the phrase "contract <semver>" is matched, which is what the runtime and
+/// `describe` actually print -- narrow enough not to trip over prose about
+/// unrelated version numbers.
+#[test]
+fn no_doc_quotes_a_stale_contract_version() {
+    let current = documented_version();
+    let re_like = format!("contract {current}");
+    let dir = repo_root().join("docs");
+    let mut stale = Vec::new();
+
+    for entry in std::fs::read_dir(&dir).expect("docs/ should exist") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        // The contract's own version history is a record of the past, by design.
+        let body = std::fs::read_to_string(&path).expect("readable");
+        let body = if name == "WIRE_CONTRACT.md" {
+            body.split("## 12. Version history")
+                .next()
+                .unwrap()
+                .to_string()
+        } else {
+            body
+        };
+
+        for (i, line) in body.lines().enumerate() {
+            for cap in line.split("contract ").skip(1) {
+                let ver: String = cap
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
+                // Three dotted numbers, and not the current one.
+                if ver.split('.').count() == 3
+                    && ver.split('.').all(|p| !p.is_empty())
+                    && ver != current
+                {
+                    stale.push(format!("{name}:{}: contract {ver}\n    {line}", i + 1));
+                }
+            }
+        }
+        let _ = &re_like;
+    }
+
+    assert!(
+        stale.is_empty(),
+        "these docs quote a contract version other than {current}:\n  {}",
+        stale.join("\n  ")
+    );
+}
+
 #[test]
 fn the_document_does_not_mention_a_stale_version() {
     // The header is not the only place the version appears: it is also in the

@@ -110,7 +110,7 @@ $ cargo run -p runtt-smp --example can-ping -- vcan0 0x42
   can:vcan0/0x42
   echo -> "runtt"
   image list -> no images
-  describe -> board: "native_sim/native/64", contract: "1.2.0", channels: 2
+  describe -> board: "native_sim/native/64", contract: "2.0.0", channels: 2
 ```
 
 Host setup, once per machine:
