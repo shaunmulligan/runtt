@@ -112,9 +112,15 @@ impl IsoTpChannel {
     }
 
     pub fn set_read_timeout(&self, timeout: Duration) -> Result<()> {
+        // `as _`, not `as libc::time_t`. Naming those aliases is deprecated on
+        // musl targets -- libc is widening time_t and suseconds_t to 64-bit for
+        // musl 1.2.0 -- and the deprecation fires only there, so a gnu host
+        // build is clean while every musl cross-build fails under `-D warnings`.
+        // Casting to the inferred field type means this follows libc when the
+        // width changes instead of pinning the old alias.
         let tv = libc::timeval {
-            tv_sec: timeout.as_secs() as libc::time_t,
-            tv_usec: timeout.subsec_micros() as libc::suseconds_t,
+            tv_sec: timeout.as_secs() as _,
+            tv_usec: timeout.subsec_micros() as _,
         };
         // SAFETY: tv is a valid timeval for the lifetime of the call.
         let rc = unsafe {
@@ -364,9 +370,15 @@ impl CanLogReader {
     }
 
     fn set_read_timeout(&self, timeout: Duration) -> Result<()> {
+        // `as _`, not `as libc::time_t`. Naming those aliases is deprecated on
+        // musl targets -- libc is widening time_t and suseconds_t to 64-bit for
+        // musl 1.2.0 -- and the deprecation fires only there, so a gnu host
+        // build is clean while every musl cross-build fails under `-D warnings`.
+        // Casting to the inferred field type means this follows libc when the
+        // width changes instead of pinning the old alias.
         let tv = libc::timeval {
-            tv_sec: timeout.as_secs() as libc::time_t,
-            tv_usec: timeout.subsec_micros() as libc::suseconds_t,
+            tv_sec: timeout.as_secs() as _,
+            tv_usec: timeout.subsec_micros() as _,
         };
         // SAFETY: tv is a valid timeval for the lifetime of the call.
         let rc = unsafe {

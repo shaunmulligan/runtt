@@ -466,8 +466,23 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # Echo the failure tail as annotations, the same as mcuboot-sim. Written
+      # without it first, and the first failure of this job reported nothing but
+      # "exit code 101" three times over -- while the actual cause was one line
+      # naming a file. Log download needs admin rights on the repository;
+      # annotations do not.
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} --bins
+        run: |
+          set -o pipefail
+          if ! cargo build --release --target ${{ matrix.target }} --bins 2>&1 \
+               | tee /tmp/build.log; then
+            echo "::error::cross-build for ${{ matrix.target }} failed"
+            { grep -vE "^[[:space:]]*(Compiling|Downloading|Downloaded|Updating|Fresh|Adding|Locking) " \
+                /tmp/build.log \
+                | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -9 \
+                | while IFS= read -r l; do echo "::error::${l:0:400}"; done; } || true
+            exit 1
+          fi
 
       # Check the ARTEFACT. A cross-build that silently produced a dynamically
       # linked binary, or one for the wrong architecture, would publish
