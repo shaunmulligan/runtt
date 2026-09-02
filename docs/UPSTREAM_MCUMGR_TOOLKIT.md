@@ -147,6 +147,43 @@ gh pr create --repo Finomnis/mcumgr-toolkit --fill
 
 `--fill` takes the title and body from the commit message the patch carries.
 
+### If commit signing is enabled
+
+`git am` creates a commit, so it signs one. With `commit.gpgsign = true` and a
+curses pinentry, that fails:
+
+```
+gpg: signing failed: Inappropriate ioctl for device
+fatal: failed to write commit object
+```
+
+gpg cannot find a terminal to prompt on. Tell it which one, and put the line in
+your shell profile so `git commit` does not hit the same wall later:
+
+```bash
+export GPG_TTY=$(tty)
+```
+
+On macOS the GUI pinentry avoids the problem entirely, since it needs no TTY:
+
+```bash
+brew install pinentry-mac
+echo "pinentry-program $(brew --prefix)/bin/pinentry-mac" >> ~/.gnupg/gpg-agent.conf
+gpgconf --kill gpg-agent
+```
+
+**A failed `am` leaves state behind.** The patch is applied to the worktree but
+uncommitted, and `.git/rebase-apply` still exists, so a retry refuses with
+`previous rebase directory .git/rebase-apply still exists but mbox given`. Clear
+it before retrying — nothing is lost, the patch simply re-applies:
+
+```bash
+git am --abort
+```
+
+`git am --no-gpg-sign` skips signing for this commit if you would rather sort gpg
+out separately, at the cost of an unverified commit on the PR.
+
 ### If `git am` is unavailable
 
 `patch -p1` works from the repository root too, and was verified. It loses the
