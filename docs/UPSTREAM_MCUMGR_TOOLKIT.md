@@ -138,7 +138,7 @@ git am              /path/to/runtt/docs/patches/mcumgr-toolkit-external-transpor
 
 # Prove it. The workspace builds everything, so this covers mcumgrctl too.
 cargo test -p mcumgr-toolkit
-cargo clippy --all-targets
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 
 git push -u origin external-transports
@@ -146,6 +146,31 @@ gh pr create --repo Finomnis/mcumgr-toolkit --fill
 ```
 
 `--fill` takes the title and body from the commit message the patch carries.
+
+### Upstream needs a current toolchain
+
+The workspace root declares `resolver = "3"`, `edition = "2024"` and
+`rust-version = "1.88"`. An older toolchain fails at *manifest parse*, before any
+code compiles, with a message that looks unrelated to the patch:
+
+```
+`resolver` setting `3` is not valid, valid options are "1" or "2"
+```
+
+`rustup update stable` is the fix. Nothing about this is patch-specific — the
+project simply asks for Rust ≥ 1.88.
+
+### Before submitting, run the vendored check
+
+```bash
+./scripts/check-vendored-patch.sh
+```
+
+`third_party/mcumgr-toolkit` is patched in but is **not** a workspace member, so
+`cargo clippy --workspace` and `cargo fmt` never see it. That gap let a
+`clippy::collapsible_if` and a stray blank line reach a maintainer-facing PR. The
+script copies the crate out and runs upstream's own gates — `cargo fmt --check`,
+`cargo clippy --all-targets -- -D warnings`, `cargo test` — and CI runs it too.
 
 ### If commit signing is enabled
 

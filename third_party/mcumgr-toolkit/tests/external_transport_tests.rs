@@ -14,7 +14,6 @@
 //!
 //! An in-crate unit test could not check either: it can name private items.
 
-
 use ciborium::Value;
 use mcumgr_toolkit::MCUmgrClient;
 use mcumgr_toolkit::transport::{
@@ -43,10 +42,10 @@ impl Transport for EchoDatagram {
         let mut value: Value = ciborium::from_reader(data).unwrap();
         if let Some(map) = value.as_map_mut() {
             for (key, _) in map.iter_mut() {
-                if let Some(key) = key.as_text_mut() {
-                    if key == "d" {
-                        *key = "r".to_string();
-                    }
+                if let Some(key) = key.as_text_mut()
+                    && key == "d"
+                {
+                    *key = "r".to_string();
                 }
             }
         }
