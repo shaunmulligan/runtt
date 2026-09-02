@@ -24,9 +24,20 @@ provision.hex
 /flash.bin
 # ...but the signed test fixtures are source, not artefacts: the e2e tests
 # include_bytes! them, so without these a fresh clone does not COMPILE.
-!crates/smp-client/tests/fixtures/*.bin
+# Signed image fixtures ARE tracked: the tests include_bytes! them, so a clone
+# without them cannot compile. Keep this path in step with the crate name -- it
+# said `smp-client` after the rename to `runtt-smp`, which quietly re-broke the
+# thing it exists to prevent.
+!crates/runtt-smp/tests/fixtures/*.bin
 
 # Local-only: host setup notes specific to one machine (paths, USB topology,
 # group membership). Useful to have to hand, not useful to anyone else, and not
 # something to publish.
 /docs/PREREQUISITES.md
+
+# Board flash backups stay LOCAL. The blobs contain a vendor bootloader and are
+# specific to one physical board, and BACKUP.sha256 only verifies files that live
+# next to it -- so in a clone it checksums nothing. Keep the backup on the machine
+# that holds the board; scripts/flash-feather.sh finds it beside or above the repo.
+/feather-backup/
+/nrf52840-backup-*/
