@@ -49,7 +49,7 @@ jobs:
           # binary is rejected outright with "not an MCUboot image". This block
           # used /dev/urandom until the TLV parser landed in phase 1.
           mkdir -p /tmp/fw
-          cp crates/smp-client/tests/fixtures/app.signed.bin /tmp/fw/app.signed.bin
+          cp crates/runtt-smp/tests/fixtures/app.signed.bin /tmp/fw/app.signed.bin
           cat > /tmp/fw/Dockerfile <<'DOCKER'
           FROM scratch
           ADD app.signed.bin /
@@ -182,36 +182,96 @@ jobs:
       # package. Install that first, then report per module rather than dying on
       # whichever modprobe happens to fail -- a bare "modprobe: FATAL" says
       # nothing about which of the two is missing.
+      # SMP over CAN rides ISO-TP, which needs the can-isotp kernel module.
+      # GitHub's hosted runners load vcan but NOT can-isotp -- that is what this
+      # job first failed on, and it is a property of the runner image, not of
+      # anything in this repository.
+      #
+      # So this reports precisely and skips visibly rather than doing either of
+      # the two tempting things. Failing keeps CI permanently red over an
+      # environment limitation; skipping quietly is worse, because a gate that
+      # silently stops running looks exactly like a gate that passes. A step
+      # summary line and a warning annotation are neither.
+      #
+      # End-to-end ISO-TP coverage therefore lives on the hardware path in
+      # runtt-boards. To get it here instead, a self-hosted runner on a kernel
+      # carrying can-isotp is all this needs -- the steps below are unchanged.
       - name: Set up a virtual CAN bus
+        id: can
         run: |
           set -uo pipefail
           echo "kernel: $(uname -r)"
           sudo apt-get update -qq
-          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" \
-            || echo "note: no linux-modules-extra for this kernel; continuing"
+
+          # Report apt's status. The first version of this swallowed it with
+          # `|| echo note`, so when can-isotp turned out to be missing there was
+          # no way to tell whether the package had failed to install or simply
+          # does not carry the module. On generic kernels can-isotp ships in the
+          # base linux-modules package; on the azure kernels these runners use it
+          # is in linux-modules-extra, if it is there at all.
+          pkg="linux-modules-extra-$(uname -r)"
+          if sudo apt-get install -y -qq "$pkg"; then
+            echo "installed $pkg"
+          else
+            rc=$?
+            echo "apt could not install $pkg (exit $rc)"
+            apt-cache policy "$pkg" 2>&1 | head -5 || true
+          fi
+
+          echo "--- CAN modules shipped for this kernel:"
+          find "/lib/modules/$(uname -r)" \( -name 'can*' -o -name 'vcan*' \) 2>/dev/null | sort || true
+
           missing=""
           for m in vcan can-isotp; do
             if sudo modprobe "$m" 2>/dev/null; then echo "loaded  $m"
             else echo "MISSING $m"; missing="$missing $m"; fi
           done
+
           if [ -n "$missing" ]; then
-            echo "::error::this runner's kernel has no$missing, so the CAN gate cannot run here."
-            echo "The gate SKIPS without a bus, and a silent skip in CI is worse than no job,"
-            echo "so this fails deliberately. Options: a self-hosted runner, or drop the CAN"
-            echo "gate from this workflow and rely on runtt-boards' hardware gate instead."
-            exit 1
+            missing="${missing# }"          # built up with a leading space
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CAN gate SKIPPED: this runner's kernel has no $missing"
+            {
+              echo "### CAN gate skipped"
+              echo
+              echo "\`$(uname -r)\` has no **$missing**, so SMP over ISO-TP cannot run here."
+              echo "This is a runner-image limitation. End-to-end CAN coverage runs on"
+              echo "hardware in \`runtt-boards\`; a self-hosted runner with \`can-isotp\`"
+              echo "would enable it in this workflow unchanged."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+
           sudo ip link add dev vcan0 type vcan
           sudo ip link set vcan0 up
           sudo ip link property add dev vcan0 altname zcan0   # native_sim hardcodes this
           ip -d link show vcan0
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "### CAN gate ran on a vcan bus" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Phase-1 gate (SMP over CAN)
+        if: steps.can.outputs.ready == 'true'
         working-directory: runtt
         env:
           SIM: ${{ github.workspace }}/ws/boards/build-can/zephyr/zephyr.exe
           MCUBOOT: ${{ github.workspace }}/ws/bootloader/mcuboot
-        run: ./scripts/native-sim-can-e2e.sh
+        run: |
+          set -o pipefail
+          if ! ./scripts/native-sim-can-e2e.sh 2>&1 | tee /tmp/can-e2e.log; then
+            echo "::error::the CAN gate ran and failed -- this is a real regression,"
+            echo "::error::not the runner limitation the setup step reports on."
+            grep -E "FAIL|error|not ok|skip" /tmp/can-e2e.log | head -8 \
+              | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
+          # The script skips rather than fails when its preconditions are unmet.
+          # Having got this far the bus exists, so a skip now means something else
+          # is wrong and must not read as success.
+          if grep -qi "^skip" /tmp/can-e2e.log; then
+            echo "::error::the CAN gate skipped despite a working bus:"
+            grep -i "^skip" /tmp/can-e2e.log | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
 
   mcuboot-sim:
     # The coverage native_sim structurally cannot give us. MCUboot's own Rust
@@ -264,10 +324,48 @@ jobs:
           # That is what broke this job.
           west update --narrow -o=--depth=1
           # west fetches the mcuboot repo but not its git submodules, and the
-          # simulator links mbedtls and tinycrypt from ext/.
-          git -C bootloader/mcuboot submodule update --init --depth 1 \
-            ext/mbedtls ext/tinycrypt
+          # simulator links mbedtls from ext/. Only mbedtls: ext/tinycrypt is
+          # vendored directly in the mcuboot tree rather than being a submodule,
+          # and git accepts the extra pathspec silently, which made the command
+          # read as though tinycrypt were coming from here too.
+          git -C bootloader/mcuboot submodule update --init --depth 1 ext/mbedtls
 
+      # Build and test as separate steps. `cargo test` returns 101 for both a
+      # compile error and a failing test, so one step cannot say which happened
+      # -- and downloading the log needs admin rights on the repository, so the
+      # exit code was genuinely all there was to go on.
+      #
+      # Hence the tail-as-annotation in both: annotations ARE readable without
+      # admin rights, so a failure here reports what went wrong rather than only
+      # that something did. All 25 tests pass locally, so the first failure of
+      # this job was environmental and this is how we find out how.
+      - name: Build the simulator
+        working-directory: bootloader/mcuboot/sim
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set -o pipefail
+          if ! cargo build --tests --features sig-ecdsa 2>&1 | tee /tmp/sim-build.log; then
+            echo "::error::the mcuboot simulator did not compile"
+            grep -E "^error|error\[|cannot find|No such file|fatal error" /tmp/sim-build.log \
+              | head -8 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
+
+      # The slow tests are the point: perm_with_fails and revert_with_fails walk
+      # every power-fail position through a swap. ~3 min on 18 cores locally, so
+      # allow considerably more on a smaller runner.
       - name: Swap, revert and confirm under injected failures
         working-directory: bootloader/mcuboot/sim
-        run: cargo test --features sig-ecdsa
+        timeout-minutes: 45
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set -o pipefail
+          if ! cargo test --features sig-ecdsa 2>&1 | tee /tmp/sim-test.log; then
+            echo "::error::mcuboot swap/revert tests failed"
+            grep -E "^error|panicked|FAILED|^failures:|assertion" /tmp/sim-test.log \
+              | head -8 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
+          grep -E "^test result:" /tmp/sim-test.log
