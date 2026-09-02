@@ -40,19 +40,21 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # Pinned exactly: young crate, single maintainer. See docs/WIRE_CONTRACT.md.
 mcumgr-toolkit = "=0.16.0"
 
-# Vendored so we can carry ONE addition: MCUmgrClient::new_from_transport.
-#
-# Every upstream constructor is tied to a concrete transport type and the
-# client's connection field is private, so a Transport implementation living
-# outside the crate -- ours is SMP over ISO-TP on CAN -- cannot be handed to a
-# client at all. Connection::new is already public and generic; the patch just
-# exposes the same thing one level up.
-#
-# The diff is one import and one method. It is submitted upstream as
-# docs/UPSTREAM_MCUMGR_TOOLKIT.md; delete this block and the vendored tree once
-# it lands in a release.
 [patch.crates-io]
-mcumgr-toolkit = { path = "third_party/mcumgr-toolkit" }
+# One addition upstream does not have yet: MCUmgrClient::new_from_transport, plus
+# the two public constants a Transport impl needs to name its own parameter types.
+# Without them a Transport living outside the crate -- ours is SMP over ISO-TP on
+# CAN -- cannot be handed to a client at all.
+#
+# Submitted upstream as Finomnis/mcumgr-toolkit#186.
+# Pinned to a REV rather than a branch: the branch will move as review feedback
+# lands, and we want to choose when to take it rather than have a rebase upstream
+# silently change what we build.
+#
+# NOTE: while this git dependency exists, `cargo publish` is impossible -- crates.io
+# requires every dependency to itself be on crates.io. Dropping back to a released
+# version is the last step before publishing. See docs/FORKED_DEPENDENCY.md.
+mcumgr-toolkit = { git = "https://github.com/shaunmulligan/mcumgr-toolkit", rev = "6595f7e4fcadec5c1d02dd70072dc16e3176e253" }
 
 [profile.release]
 # Strip in the compiler rather than with binutils afterwards. Release artefacts

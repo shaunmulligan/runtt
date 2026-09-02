@@ -155,7 +155,7 @@ Contract loss is never remotely permanent, by construction.
 | `docs/MANUAL_LOG_DEMUX.md` | verify the single-channel log demux by hand |
 | `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need |
 | `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: unbounded loop in MCUboot's `find_last_idx` |
-| `docs/UPSTREAM_MCUMGR_TOOLKIT.md` | a patch to submit upstream, and how to submit it |
+| `docs/FORKED_DEPENDENCY.md` | why we build against a fork of `mcumgr-toolkit`, and how to drop it |
 
 ## Contributing
 

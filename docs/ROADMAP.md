@@ -185,22 +185,15 @@ monolithic pipeline and then splitting it means writing it twice.
 Both are carried locally today. They get **different treatment**, and conflating
 them would be a mistake.
 
-**`mcumgr-toolkit` → fork it.** The patch is written, tested and ready; see
-[UPSTREAM_MCUMGR_TOOLKIT.md](UPSTREAM_MCUMGR_TOOLKIT.md) for the submission
-steps. Once the fork exists, the workspace `[patch.crates-io]` block points at a
-git branch instead of `third_party/`, and the vendored tree is deleted:
+**`mcumgr-toolkit` → done.** Submitted as
+[Finomnis/mcumgr-toolkit#186](https://github.com/Finomnis/mcumgr-toolkit/pull/186),
+and this repo now builds against the fork rather than a vendored tree — 436 KB and
+32 files lighter. See [FORKED_DEPENDENCY.md](FORKED_DEPENDENCY.md) for the state
+of it and the steps to drop the fork when a release contains the patch.
 
-```toml
-[patch.crates-io]
-mcumgr-toolkit = { git = "https://github.com/<org>/mcumgr-toolkit", branch = "external-transports" }
-```
-
-⚠️ **A git dependency cannot be published to crates.io.** crates.io requires every
-dependency to itself be on crates.io, so as long as we ride a fork, `cargo
-publish` is closed to us. That is fine — and it is a reason to submit the patch
-promptly rather than living on the fork indefinitely. If publishing becomes
-urgent before upstream releases, the fallback is publishing the fork under a
-different crate name, which is worse than waiting.
+⚠️ **A git dependency cannot be published to crates.io**, so while the fork is in
+place `cargo publish` is closed. Not urgent, but it means dropping the fork is a
+prerequisite for any crates.io release rather than an optional tidy-up.
 
 **MCUboot → submit the patch, do NOT fork.** It rides `west patch` in
 `firmware/patches.yml` today: explicit, pinned by sha256, visible in the tree, and

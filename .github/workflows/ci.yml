@@ -77,12 +77,6 @@ jobs:
              -lt "$(grep -n 'image confirmed' /tmp/ci-run.log | head -1 | cut -d: -f1)"
           ! grep -q "unsupported signal" /tmp/ci-run.log
 
-      # The vendored mcumgr-toolkit is patched in but is not a workspace member,
-      # so every check above skips it. These changes are destined for upstream, so
-      # hold them to upstream's gates rather than ours -- see the script header.
-      - name: Check the vendored upstream patch
-        run: ./scripts/check-vendored-patch.sh
-
   native-sim:
     # Phase 1: the whole firmware loop, headless, with no hardware and no USB.
     # native_sim builds with the HOST compiler, so no Zephyr SDK is needed --
