@@ -20,6 +20,36 @@ fn read(rel: &str) -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
 }
 
+/// Read something that lives on the FIRMWARE side of the contract.
+///
+/// The firmware module and the runtime are heading for separate repositories, so
+/// these files are present in the monorepo and absent once the runtime stands
+/// alone. Returning None lets the same test file work in both layouts.
+///
+/// A skip is not silent: it prints, and `RUNTT_REQUIRE_FIRMWARE=1` turns it into
+/// a failure. CI sets that once it fetches firmware fixtures, so the skip cannot
+/// quietly become permanent -- an assertion nobody notices has stopped running is
+/// worse than one that was never written.
+fn read_firmware(rel: &str) -> Option<String> {
+    let p = repo_root().join(rel);
+    match std::fs::read_to_string(&p) {
+        Ok(s) => Some(s),
+        Err(_) if std::env::var_os("RUNTT_REQUIRE_FIRMWARE").is_none() => {
+            eprintln!(
+                "SKIP: {} is not in this repository. The firmware module lives in \
+                 runtt-zephyr, which asserts the contract version on its own side. \
+                 Set RUNTT_REQUIRE_FIRMWARE=1 to make this a failure.",
+                rel
+            );
+            None
+        }
+        Err(e) => panic!(
+            "RUNTT_REQUIRE_FIRMWARE is set but {} cannot be read: {e}",
+            p.display()
+        ),
+    }
+}
+
 /// `**Version 1.0.0**` from the document's header.
 fn documented_version() -> String {
     let doc = read("docs/WIRE_CONTRACT.md");
@@ -31,14 +61,14 @@ fn documented_version() -> String {
 }
 
 /// The default the firmware reports over `describe`.
-fn firmware_default_version() -> String {
-    let kconfig = read("firmware/runtt/zephyr/Kconfig");
+fn firmware_default_version() -> Option<String> {
+    let kconfig = read_firmware("firmware/runtt/zephyr/Kconfig")?;
     let mut lines = kconfig.lines();
     while let Some(l) = lines.next() {
         if l.trim() == "config RUNTT_CONTRACT_VERSION" {
             for l in lines.by_ref().take(6) {
                 if let Some(v) = l.trim().strip_prefix("default ") {
-                    return v.trim().trim_matches('"').to_string();
+                    return Some(v.trim().trim_matches('"').to_string());
                 }
             }
         }
@@ -60,9 +90,10 @@ fn runtime_major() -> u32 {
 
 #[test]
 fn the_document_and_the_firmware_agree() {
+    let Some(fw) = firmware_default_version() else { return };
     assert_eq!(
         documented_version(),
-        firmware_default_version(),
+        fw,
         "docs/WIRE_CONTRACT.md and RUNTT_CONTRACT_VERSION disagree. \
          Whichever you changed, change the other."
     );
@@ -197,7 +228,7 @@ fn the_mock_declares_the_documented_contract() {
 fn the_describe_group_is_the_per_user_base() {
     // 64 is MGMT_GROUP_ID_PERUSER. Below it the ids belong to Zephyr, so a
     // command there would be squatting on someone else's number.
-    let kconfig = read("firmware/runtt/zephyr/Kconfig");
+    let Some(kconfig) = read_firmware("firmware/runtt/zephyr/Kconfig") else { return };
     assert!(
         kconfig.contains("default 64"),
         "RUNTT_SMP_GROUP_ID should default to 64 (MGMT_GROUP_ID_PERUSER)"
@@ -214,11 +245,14 @@ fn the_documented_interface_strings_are_the_ones_we_match_on() {
         // honours the contract still will not be discovered.
         let rules = read("udev/90-runtt.rules");
         assert!(rules.contains(s), "udev rules should match on {s}");
-        // As should the hardware overlay that produces them.
-        let overlay = read("firmware/runtt/snippets/runtt/boards/rpi_pico.overlay");
-        assert!(
-            overlay.contains(s),
-            "the rpi_pico overlay should declare {s}"
-        );
+        // As should the hardware overlay that produces them -- when the firmware
+        // module is in this repository. runtt-zephyr asserts it on its own side.
+        if let Some(overlay) = read_firmware("firmware/runtt/snippets/runtt/boards/rpi_pico.overlay")
+        {
+            assert!(
+                overlay.contains(s),
+                "the rpi_pico overlay should declare {s}"
+            );
+        }
     }
 }
