@@ -45,10 +45,10 @@ capture; same-digest no-op redeploy.
   traps that make a naive gate worthless are in `docs/HARDWARE_GATE.md`.
 - **CAN on physical hardware.** The transport is proven end to end on a virtual
   bus (`vcan`) and gates in CI; two boards with different CAN controllers are on
-  order to prove it is controller-agnostic. See `docs/HARDWARE_TARGETS.md`.
+  order to prove it is controller-agnostic. See [runtt-boards](https://github.com/<org>/runtt-boards).
 - **A fleet trust root.** Everything is signed with MCUboot's *published*
   development key. Fine on a bench, unfit for anything else — see the
-  signing-key warning in `docs/FIRMWARE_GUIDE.md`.
+  signing-key warning in [runtt-zephyr-module](https://github.com/<org>/runtt-zephyr-module).
 - **Revert on real hardware.** Exercised in MCUboot's own simulator, not yet on a
   board.
 
@@ -85,8 +85,9 @@ Inject a fault to watch an error path:
 ./target/debug/runtt-mock --fault bad-hash --symlink /tmp/mcu-tty
 ```
 
-For the real thing on a board, follow `docs/WALKTHROUGH.md` — every command and
-transcript there was run against hardware.
+For the real thing on a board, follow the walkthrough in
+[runtt-examples](https://github.com/<org>/runtt-examples) — every command and transcript there was run
+against hardware.
 
 ## Placement
 
@@ -105,7 +106,7 @@ path** means *"whatever board is in this physical position"*, right when boards
 are replaceable and position defines the role; a **serial** means *"this specific
 board, wherever it is"*, and is the only form that makes a compose file portable
 between machines. They are told apart by shape, not by guessing — see
-`docs/WIRE_CONTRACT.md`.
+[docs/WIRE_CONTRACT.md](docs/WIRE_CONTRACT.md).
 
 Resolution identifies the management and log channels by their **USB interface
 string descriptor** (`runtt-mgmt` / `runtt-log`), never by interface number, and
@@ -134,28 +135,41 @@ Contract loss is never remotely permanent, by construction.
 | `crates/runtt-smp` | the five-method SMP surface, over `mcumgr-toolkit` |
 | `crates/runtt-transport` | the transport seam: USB, bare serial, CAN |
 | `crates/runtt-mock` | SMP server with injectable faults, for testing error paths |
-| `firmware/runtt` | the Zephyr module and snippet a firmware app opts into |
-| `firmware/examples/` | two example applications, each buildable with `docker build .` |
 | `udev/90-runtt.rules` | device access and the contract-keyed device tree |
 
 ### Documentation
 
 | Doc | What |
 |---|---|
-| `docs/WALKTHROUGH.md` | build two releases and switch an MCU between them with `docker run` |
 | `docs/ARCHITECTURE.md` | how it fits together, and why an OCI runtime rather than a service |
 | `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics, identity |
-| `docs/FIRMWARE_GUIDE.md` | getting a Zephyr app onto the platform: tree layout, build, traps |
-| `docs/PROVISIONING.md` | the one physical act: getting a board manageable in the first place |
-| `docs/HARDWARE_TARGETS.md` | supported boards, what each needs, and boards deliberately rejected |
 | `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
 | `docs/ROADMAP.md` | where this is and what is worth doing next |
 | `docs/HARDWARE_GATE.md` | why CI is simulated-only, and the design for a hardware gate |
 | `docs/MANUAL_VERIFICATION.md` | walk the native_sim flow by hand, step by step |
 | `docs/MANUAL_LOG_DEMUX.md` | verify the single-channel log demux by hand |
 | `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need |
-| `docs/MCUBOOT_SWAP_BUG.md` | draft upstream report: unbounded loop in MCUboot's `find_last_idx` |
 | `docs/FORKED_DEPENDENCY.md` | why we build against a fork of `mcumgr-toolkit`, and how to drop it |
+
+## The runtt repositories
+
+runtt is four repositories, because they have different lifecycles: this one ships
+binaries, the module goes into other people's source trees, and board support
+changes on hardware's schedule rather than the runtime's.
+
+| Repo | What it holds | Start here if |
+|---|---|---|
+| **`runtt`** (this one) | the OCI runtime — the **host** side | you want to know what runtt is, or to work on the runtime |
+| [`runtt-zephyr-module`](https://github.com/<org>/runtt-zephyr-module) | the Zephyr module — the **device** side | you have firmware and want it manageable |
+| [`runtt-boards`](https://github.com/<org>/runtt-boards) | provisioning, board bring-up, the west manifest | you have a board that has never run runtt |
+| [`runtt-examples`](https://github.com/<org>/runtt-examples) | two worked applications, and the walkthrough | you want to watch it work end to end |
+
+**New here?** You are in the right place — read on, then follow the walkthrough in
+[`runtt-examples`](https://github.com/<org>/runtt-examples).
+
+[docs/WIRE_CONTRACT.md](docs/WIRE_CONTRACT.md) lives here and is the seam between
+all four: the runtime is what enforces the version and refuses a device whose
+major disagrees.
 
 ## Contributing
 
