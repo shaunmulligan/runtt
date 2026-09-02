@@ -45,10 +45,10 @@ capture; same-digest no-op redeploy.
   traps that make a naive gate worthless are in `docs/HARDWARE_GATE.md`.
 - **CAN on physical hardware.** The transport is proven end to end on a virtual
   bus (`vcan`) and gates in CI; two boards with different CAN controllers are on
-  order to prove it is controller-agnostic. See [runtt-boards](https://github.com/<org>/runtt-boards).
+  order to prove it is controller-agnostic. See [runtt-boards](https://github.com/shaunmulligan/runtt-boards).
 - **A fleet trust root.** Everything is signed with MCUboot's *published*
   development key. Fine on a bench, unfit for anything else — see the
-  signing-key warning in [runtt-zephyr-module](https://github.com/<org>/runtt-zephyr-module).
+  signing-key warning in [runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module).
 - **Revert on real hardware.** Exercised in MCUboot's own simulator, not yet on a
   board.
 
@@ -86,7 +86,7 @@ Inject a fault to watch an error path:
 ```
 
 For the real thing on a board, follow the walkthrough in
-[runtt-examples](https://github.com/<org>/runtt-examples) — every command and transcript there was run
+[runtt-examples](https://github.com/shaunmulligan/runtt-examples) — every command and transcript there was run
 against hardware.
 
 ## Placement
@@ -160,12 +160,12 @@ changes on hardware's schedule rather than the runtime's.
 | Repo | What it holds | Start here if |
 |---|---|---|
 | **`runtt`** (this one) | the OCI runtime — the **host** side | you want to know what runtt is, or to work on the runtime |
-| [`runtt-zephyr-module`](https://github.com/<org>/runtt-zephyr-module) | the Zephyr module — the **device** side | you have firmware and want it manageable |
-| [`runtt-boards`](https://github.com/<org>/runtt-boards) | provisioning, board bring-up, the west manifest | you have a board that has never run runtt |
-| [`runtt-examples`](https://github.com/<org>/runtt-examples) | two worked applications, and the walkthrough | you want to watch it work end to end |
+| [`runtt-zephyr-module`](https://github.com/shaunmulligan/runtt-zephyr-module) | the Zephyr module — the **device** side | you have firmware and want it manageable |
+| [`runtt-boards`](https://github.com/shaunmulligan/runtt-boards) | provisioning, board bring-up, the west manifest | you have a board that has never run runtt |
+| [`runtt-examples`](https://github.com/shaunmulligan/runtt-examples) | two worked applications, and the walkthrough | you want to watch it work end to end |
 
 **New here?** You are in the right place — read on, then follow the walkthrough in
-[`runtt-examples`](https://github.com/<org>/runtt-examples).
+[`runtt-examples`](https://github.com/shaunmulligan/runtt-examples).
 
 [docs/WIRE_CONTRACT.md](docs/WIRE_CONTRACT.md) lives here and is the seam between
 all four: the runtime is what enforces the version and refuses a device whose

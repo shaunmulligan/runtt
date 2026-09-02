@@ -11,12 +11,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-# repository = "https://github.com/<org>/runtt"
-#
-# Left commented deliberately. The rename rewrote the old balena-os URL into a
-# balena-os/runtt one that does not exist, and shipping a wrong repository field
-# is worse than shipping none -- crates.io renders it as a link. Set it when the
-# project has a home.
+repository = "https://github.com/shaunmulligan/runtt"
 
 [workspace.dependencies]
 anyhow = "1.0.104"
