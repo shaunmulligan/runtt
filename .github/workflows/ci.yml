@@ -77,14 +77,30 @@ jobs:
              -lt "$(grep -n 'image confirmed' /tmp/ci-run.log | head -1 | cut -d: -f1)"
           ! grep -q "unsupported signal" /tmp/ci-run.log
 
+  # ---------------------------------------------------------------------------
+  # The firmware loop, headless.
+  #
+  # The Zephyr side lives in runtt-boards now, so this job assembles a workspace
+  # from that repository's manifest and builds the fixtures itself. Two things
+  # make that cheap: native_sim needs NO Zephyr SDK (it compiles with the host
+  # toolchain), and the workspace caches.
+  #
+  # The alternative was having runtt-boards publish fixtures for this job to
+  # download. That put two host executables on a release page whose readers want
+  # to flash a board, and it coupled this repo's CI to another repo's release
+  # cadence. Building them is simpler and pins by manifest revision instead.
+  # ---------------------------------------------------------------------------
   native-sim:
-    # Phase 1: the whole firmware loop, headless, with no hardware and no USB.
-    # native_sim builds with the HOST compiler, so no Zephyr SDK is needed --
-    # and native_sim/native/64 avoids gcc-multilib, which the 32-bit target
-    # would require.
     runs-on: ubuntu-24.04
+    env:
+      # Pin this to a runtt-boards tag once it has one. A branch means a change
+      # over there can turn this red without anything changing here.
+      RUNTT_BOARDS_REF: main
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the runtime
+        uses: actions/checkout@v4
+        with:
+          path: runtt
 
       - name: Install Rust
         run: |
@@ -92,52 +108,89 @@ jobs:
           rustup default stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtt
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install west and build tools
         run: |
-          pip install --user west cmake ninja pyelftools cryptography intelhex click cbor2
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          pip install --quiet west pyelftools cryptography intelhex click cbor2 jsonschema
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build device-tree-compiler
 
-      - name: Fetch Zephyr
+      - name: Cache the west workspace
+        uses: actions/cache@v4
+        with:
+          path: |
+            ws/zephyr
+            ws/modules
+            ws/bootloader
+            ws/boards
+            ws/.west
+          key: west-${{ env.RUNTT_BOARDS_REF }}-${{ hashFiles('runtt/.github/workflows/ci.yml') }}
+
+      - name: Assemble a firmware workspace from runtt-boards
         run: |
-          west init -l firmware
+          mkdir -p ws && cd ws
+          west init -m https://github.com/shaunmulligan/runtt-boards --mr "${RUNTT_BOARDS_REF}" \
+            2>/dev/null || echo "already initialised"
           west update --narrow -o=--depth=1
-          pip install --user -r zephyr/scripts/requirements-base.txt
+          west list
+          pip install --quiet -r zephyr/scripts/requirements-base.txt
+
+      # No SDK step: native_sim builds with the host compiler.
+      - name: Build the native_sim fixtures
+        working-directory: ws/boards
+        run: |
+          ./scripts/build-native-sim.sh
+          BUILD_DIR="$PWD/build-can" ./scripts/build-native-sim.sh \
+            -DEXTRA_CONF_FILE="$PWD/bringup/native-sim-can.conf" \
+            -DEXTRA_DTC_OVERLAY_FILE="$PWD/bringup/native-sim-can.overlay"
 
       - name: Build the runtime
+        working-directory: runtt
         run: cargo build
 
-      - name: Build firmware for native_sim
-        run: ./scripts/build-native-sim.sh
+      # RUNTT_REQUIRE_FIRMWARE is deliberately NOT set here: the firmware module
+      # is not in this repository, so the three contract assertions that read it
+      # skip. runtt-zephyr-module asserts them on its own side.
+      - name: Tests
+        working-directory: runtt
+        run: cargo test --workspace
 
       - name: Phase-1 gate (runtime driven directly)
+        working-directory: runtt
+        env:
+          SIM: ${{ github.workspace }}/ws/boards/build/zephyr/zephyr.exe
+          MCUBOOT: ${{ github.workspace }}/ws/bootloader/mcuboot
         run: ./scripts/native-sim-e2e.sh
 
-      # The other seam: a real container image, through a real engine, to
-      # native_sim. podman needs no daemon config or root, so it runs here.
-      # See the header of that script for what podman does NOT cover versus
-      # containerd -- notably the global flag surface.
       - name: Phase-1 gate (full stack through podman)
+        working-directory: runtt
+        env:
+          SIM: ${{ github.workspace }}/ws/boards/build/zephyr/zephyr.exe
+          MCUBOOT: ${{ github.workspace }}/ws/bootloader/mcuboot
         run: ./scripts/native-sim-engine-e2e.sh
 
-      # The second transport, on a virtual bus. The whole reason SMP-over-CAN
-      # was built on ISO-TP rather than hand-rolled segmentation: Linux and
-      # Zephyr both implement it, so the loop closes on one machine with no
-      # transceivers and no wiring, and gates here exactly like the serial one.
-      #
-      # The script SKIPS rather than fails when the bus is missing, so make the
-      # setup a hard step: a silent skip in CI would be worse than no job.
+      # The CAN gate SKIPS without a bus, so the setup is a hard step: a silent
+      # skip in CI would be worse than no job at all.
       - name: Set up a virtual CAN bus
         run: |
           sudo modprobe vcan
           sudo modprobe can-isotp
           sudo ip link add dev vcan0 type vcan
           sudo ip link set vcan0 up
-          # native_sim's CAN driver hardcodes the name "zcan0".
-          sudo ip link property add dev vcan0 altname zcan0
+          sudo ip link property add dev vcan0 altname zcan0   # native_sim hardcodes this
           ip -d link show vcan0
 
       - name: Phase-1 gate (SMP over CAN)
+        working-directory: runtt
+        env:
+          SIM: ${{ github.workspace }}/ws/boards/build-can/zephyr/zephyr.exe
+          MCUBOOT: ${{ github.workspace }}/ws/bootloader/mcuboot
         run: ./scripts/native-sim-can-e2e.sh
 
   mcuboot-sim:
@@ -159,9 +212,14 @@ jobs:
           pip install --user west
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Fetch MCUboot
+      # `west init -l firmware` before the split; that directory is in
+      # runtt-boards now. Its manifest is also the thing that pins the MCUboot
+      # revision, so taking it from there keeps the simulator testing the same
+      # bootloader the boards are built against -- cloning mcuboot directly would
+      # silently drift onto a different revision.
+      - name: Fetch MCUboot at the revision runtt-boards pins
         run: |
-          west init -l firmware
+          west init -m https://github.com/shaunmulligan/runtt-boards --mr main
           west update --narrow -o=--depth=1 mcuboot
           # west fetches the mcuboot repo but not its git submodules, and the
           # simulator links mbedtls and tinycrypt from ext/.

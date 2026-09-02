@@ -15,6 +15,29 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
 RUNTIME="${RUNTIME:-$REPO/target/debug/runtt}"
+# --- where the firmware and MCUboot come from -------------------------------
+#
+# Both live in runtt-boards now, not here. This repository has no Zephyr
+# toolchain and no west manifest, on purpose: its tests need a firmware BINARY,
+# and building one needs a workspace that belongs with the board support.
+#
+#   SIM      the native_sim executable to drive
+#   MCUBOOT  an mcuboot checkout, for imgtool and its test keys
+#
+# Set up a workspace once and both fall out of it:
+#
+#   west init -m https://github.com/shaunmulligan/runtt-boards ws && cd ws
+#   west update
+#   ./boards/scripts/build-native-sim.sh
+#   SIM=$PWD/boards/build/zephyr/zephyr.exe MCUBOOT=$PWD/bootloader/mcuboot \
+#     /path/to/runtt/scripts/native-sim-engine-e2e.sh
+MCUBOOT="${MCUBOOT:-$REPO/../bootloader/mcuboot}"
+[[ -d "$MCUBOOT" ]] || {
+  echo "no mcuboot checkout at $MCUBOOT." >&2
+  echo "Set MCUBOOT to one, or see the note at the top of this script." >&2
+  exit 1
+}
+
 SIM="${SIM:-$REPO/build/zephyr/zephyr.exe}"
 IMAGE="${IMAGE:-mcu-fw:native-sim-e2e}"
 WORK="$(mktemp -d)"
@@ -79,13 +102,13 @@ fi
 
 # --- a signed image, in a real container image -------------------------------
 head -c 8192 /dev/urandom > "$WORK/payload.bin"
-python3 bootloader/mcuboot/scripts/imgtool.py sign \
-  --key bootloader/mcuboot/root-ec-p256.pem \
+python3 "$MCUBOOT/scripts/imgtool.py" sign \
+  --key "$MCUBOOT/root-ec-p256.pem" \
   --header-size 0x200 --pad-header --align 4 --version 2.0.0 --slot-size 0x69000 \
   "$WORK/payload.bin" "$WORK/app.signed.bin" >/dev/null
 
-EXPECTED_DIGEST=$(python3 bootloader/mcuboot/scripts/imgtool.py verify \
-  --key bootloader/mcuboot/root-ec-p256.pem "$WORK/app.signed.bin" \
+EXPECTED_DIGEST=$(python3 "$MCUBOOT/scripts/imgtool.py" verify \
+  --key "$MCUBOOT/root-ec-p256.pem" "$WORK/app.signed.bin" \
   | awk '/Image digest/ {print $3}')
 [[ -n "$EXPECTED_DIGEST" ]] || fail "could not read the image digest from imgtool"
 ok "signed an image (digest ${EXPECTED_DIGEST:0:16}...)"

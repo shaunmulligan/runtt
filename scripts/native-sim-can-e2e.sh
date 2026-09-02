@@ -35,6 +35,29 @@ IFACE="${IFACE:-vcan0}"
 # would pass just as well with the record ignored entirely.
 NODE_ID="${NODE_ID:-0x45}"
 RUNTIME="${RUNTIME:-$REPO/target/debug/runtt}"
+# --- where the firmware and MCUboot come from -------------------------------
+#
+# Both live in runtt-boards now, not here. This repository has no Zephyr
+# toolchain and no west manifest, on purpose: its tests need a firmware BINARY,
+# and building one needs a workspace that belongs with the board support.
+#
+#   SIM      the native_sim executable to drive
+#   MCUBOOT  an mcuboot checkout, for imgtool and its test keys
+#
+# Set up a workspace once and both fall out of it:
+#
+#   west init -m https://github.com/shaunmulligan/runtt-boards ws && cd ws
+#   west update
+#   ./boards/scripts/build-native-sim.sh
+#   SIM=$PWD/boards/build/zephyr/zephyr.exe MCUBOOT=$PWD/bootloader/mcuboot \
+#     /path/to/runtt/scripts/native-sim-can-e2e.sh
+MCUBOOT="${MCUBOOT:-$REPO/../bootloader/mcuboot}"
+[[ -d "$MCUBOOT" ]] || {
+  echo "no mcuboot checkout at $MCUBOOT." >&2
+  echo "Set MCUBOOT to one, or see the note at the top of this script." >&2
+  exit 1
+}
+
 BUILD_DIR="${BUILD_DIR:-$REPO/build-can}"
 SIM="${SIM:-$BUILD_DIR/zephyr/zephyr.exe}"
 WORK="$(mktemp -d)"
@@ -59,23 +82,25 @@ ip -d link show "$IFACE" | grep -q "altname zcan0" \
   || skip "$IFACE has no zcan0 altname. Run: sudo ip link property add dev $IFACE altname zcan0"
 ok "bus $IFACE is up, can-isotp loaded, zcan0 altname present"
 
-if [[ ! -x "$SIM" ]]; then
-  echo "  building CAN-enabled native_sim firmware into $BUILD_DIR ..."
-  BUILD_DIR="$BUILD_DIR" ./scripts/build-native-sim.sh \
-    -DEXTRA_CONF_FILE="$REPO/firmware/bringup/native-sim-can.conf" \
-    -DEXTRA_DTC_OVERLAY_FILE="$REPO/firmware/bringup/native-sim-can.overlay" \
-    >"$WORK/build.log" 2>&1 || { tail -30 "$WORK/build.log"; fail "firmware build failed"; }
-  ok "built CAN-enabled firmware"
-fi
+# It used to build the firmware itself when missing. It cannot now: the build
+# script and the CAN overlay both live in runtt-boards. Requiring a prebuilt
+# binary is the honest shape anyway -- this gate tests the RUNTIME, and building
+# firmware inside it hid how much Zephyr machinery the test depended on.
+[[ -x "$SIM" ]] || fail "no CAN-enabled native_sim at $SIM.
+  Build one in a runtt-boards workspace:
+    BUILD_DIR=\$PWD/boards/build-can ./boards/scripts/build-native-sim.sh \\
+      -DEXTRA_CONF_FILE=\$PWD/boards/bringup/native-sim-can.conf \\
+      -DEXTRA_DTC_OVERLAY_FILE=\$PWD/boards/bringup/native-sim-can.overlay
+  then point SIM at boards/build-can/zephyr/zephyr.exe"
 
 # --- a properly signed image ------------------------------------------------
 head -c 8192 /dev/urandom > "$WORK/payload.bin"
-python3 bootloader/mcuboot/scripts/imgtool.py sign \
-  --key bootloader/mcuboot/root-ec-p256.pem \
+python3 "$MCUBOOT/scripts/imgtool.py" sign \
+  --key "$MCUBOOT/root-ec-p256.pem" \
   --header-size 0x200 --pad-header --align 4 --version 2.0.0 --slot-size 0x69000 \
   "$WORK/payload.bin" "$WORK/app.signed.bin" >/dev/null
-EXPECTED_DIGEST=$(python3 bootloader/mcuboot/scripts/imgtool.py verify \
-  --key bootloader/mcuboot/root-ec-p256.pem "$WORK/app.signed.bin" \
+EXPECTED_DIGEST=$(python3 "$MCUBOOT/scripts/imgtool.py" verify \
+  --key "$MCUBOOT/root-ec-p256.pem" "$WORK/app.signed.bin" \
   | awk '/Image digest/ {print $3}')
 [[ -n "$EXPECTED_DIGEST" ]] || fail "could not read the image digest from imgtool"
 ok "signed a test image"
