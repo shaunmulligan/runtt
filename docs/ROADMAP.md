@@ -211,11 +211,11 @@ first, so each extraction can be proven before the next.
 | # | Repo | Contents | Artefacts |
 |---|---|---|---|
 | 1 | `runtt` | `crates/`, `udev/`, `register-docker.sh`, the wire contract | three static binaries |
-| 2 | `runtt-zephyr` | `firmware/runtt/` only — module, snippet, board conf/overlay | none |
+| 2 | `runtt-zephyr-module` | `firmware/runtt/` only — module, snippet, board conf/overlay | none |
 | 3 | `runtt-boards` | `firmware/{idle,bringup,builder,patches.yml,west.yml}`, provisioning and flashing scripts | provisioning images per board, plus `native_sim` test fixtures |
 | 4 | `runtt-examples` | `firmware/examples/`, the walkthrough | none |
 
-`runtt-zephyr` is the one a firmware author adds to their `west.yml`, so it should
+`runtt-zephyr-module` is the one a firmware author adds to their `west.yml`, so it should
 stay small, stable and boring. Module, snippet, board files. Nothing else.
 
 **Extract with history, not with `cp`.** `git subtree split` or `git filter-repo`,
@@ -232,7 +232,7 @@ safety net for three untested pipelines.
 
 | Gate | Needs | After the split |
 |---|---|---|
-| `contract_version.rs` | the doc, the firmware Kconfig, the runtime's major, the mock | loses one input: the Kconfig moves to `runtt-zephyr` |
+| `contract_version.rs` | the doc, the firmware Kconfig, the runtime's major, the mock | loses one input: the Kconfig moves to `runtt-zephyr-module` |
 | `native-sim-e2e.sh` | built `native_sim` firmware + the runtime binary | firmware source moves away |
 | `native-sim-can-e2e.sh` | as above, plus the CAN module and a `vcan` bus | as above |
 | `native-sim-engine-e2e.sh` | as above, plus podman | as above |
@@ -252,7 +252,7 @@ front is cheaper than discovering it.
 
 **The answer for `contract_version.rs`: split it in two.** `runtt` keeps checking
 that the document, the runtime's accepted major and the mock agree.
-`runtt-zephyr` gains a small test asserting its Kconfig default matches the
+`runtt-zephyr-module` gains a small test asserting its Kconfig default matches the
 contract version it pins. Both are cheap, and together they cover what the single
 test covers today.
 
@@ -261,7 +261,7 @@ test covers today.
 | Repo | Jobs |
 |---|---|
 | `runtt` | `cargo test` + clippy on x86; cross-build three targets; download pinned firmware fixtures and run all three gates; publish binaries on tag |
-| `runtt-zephyr` | build against every supported board (matrix); the Kconfig contract assertion |
+| `runtt-zephyr-module` | build against every supported board (matrix); the Kconfig contract assertion |
 | `runtt-boards` | Zephyr SDK; matrix over every supported board; publish provisioning images and `native_sim` fixtures on tag |
 | `runtt-examples` | build both examples against the pinned module |
 
