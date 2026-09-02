@@ -78,7 +78,9 @@ grep -qw can_isotp /proc/modules \
 # native_sim's CAN driver hardcodes the interface name "zcan0", so the bus needs
 # that altname. Without it the simulator opens nothing and every SMP call times
 # out with no clue as to why.
-ip -d link show "$IFACE" | grep -q "altname zcan0" \
+# grep without -q, so it drains `ip` rather than closing the pipe on it: under
+# pipefail a SIGPIPE here would report a missing altname on a bus that has one.
+ip -d link show "$IFACE" | grep "altname zcan0" >/dev/null \
   || skip "$IFACE has no zcan0 altname. Run: sudo ip link property add dev $IFACE altname zcan0"
 ok "bus $IFACE is up, can-isotp loaded, zcan0 altname present"
 

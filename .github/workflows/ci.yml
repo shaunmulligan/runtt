@@ -73,8 +73,14 @@ jobs:
           grep -q "image confirmed" /tmp/ci-run.log
           # Marking test must precede confirming: that ordering is the safety
           # property, so assert it rather than just that both happened.
-          test "$(grep -n 'marked test' /tmp/ci-run.log | head -1 | cut -d: -f1)" \
-             -lt "$(grep -n 'image confirmed' /tmp/ci-run.log | head -1 | cut -d: -f1)"
+          #
+          # awk rather than `grep -n | head -1 | cut`, so there is no pipeline to
+          # go wrong: head -1 closes the pipe on the first line and, under
+          # pipefail, an upstream SIGPIPE would fail this step over nothing.
+          staged=$(awk '/image staged and marked test/{print NR; exit}' /tmp/ci-run.log)
+          confirmed=$(awk '/image confirmed/{print NR; exit}' /tmp/ci-run.log)
+          echo "marked test at line $staged, confirmed at line $confirmed"
+          test "$staged" -lt "$confirmed"
           ! grep -q "unsupported signal" /tmp/ci-run.log
 
   # ---------------------------------------------------------------------------

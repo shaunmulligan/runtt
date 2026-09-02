@@ -74,7 +74,13 @@ ENGINE="${ENGINE:-}"
 if [[ -z "$ENGINE" ]]; then
   if command -v podman >/dev/null; then
     ENGINE=podman
-  elif command -v docker >/dev/null && docker info 2>/dev/null | grep -q 'runtt'; then
+  # `grep 'runtt' >/dev/null` rather than `grep -q runtt`: -q exits on the first
+  # match and closes the pipe, and `docker info` is long enough and slow enough
+  # to still be writing. It then dies of SIGPIPE, pipefail takes the pipeline's
+  # status from that, and this branch reads as "Docker is not registered" for a
+  # Docker that is. Without -q grep consumes the whole stream and still returns
+  # the match status.
+  elif command -v docker >/dev/null && docker info 2>/dev/null | grep 'runtt' >/dev/null; then
     ENGINE=docker
   else
     fail "no usable engine: install podman, or register with Docker via scripts/register-docker.sh"
