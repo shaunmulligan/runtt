@@ -24,11 +24,11 @@ container.
 
 ## Status
 
-**The full loop works on real hardware**, on two boards, through three engines.
+**The full loop works on real hardware**, on three boards, through three engines.
 
 | | |
 |---|---|
-| **Boards** | Raspberry Pi Pico (RP2040) and Adafruit Feather nRF52840, both end to end with MCUboot: upload, mark test, reset, verify, confirm |
+| **Boards** | Raspberry Pi Pico (RP2040), Raspberry Pi Pico 2 W (RP2350) and Adafruit Feather nRF52840, all end to end with MCUboot: upload, mark test, reset, verify, confirm — and revert, proven on the Pico 2 W |
 | **Engines** | Docker 28, podman, and the plain runc-style CLI. Also compatible with balena-engine, which is stock moby architecture |
 | **Transports** | USB CDC-ACM, bare serial, and CAN (SMP over ISO-TP) |
 | **Simulated** | Zephyr `native_sim` and a fault-injecting SMP mock with seven failure modes |
@@ -55,6 +55,36 @@ capture; same-digest no-op redeploy.
 > **On CI:** `.github/workflows/ci.yml` is a well-formed file, not a running
 > system. This repo has no git remote, so it has never executed anywhere. The
 > suites it runs do pass locally.
+
+## Install
+
+Static Linux binaries, one per architecture, on the
+[releases page](https://github.com/shaunmulligan/runtt/releases):
+
+```bash
+curl -LO https://github.com/shaunmulligan/runtt/releases/latest/download/runtt-aarch64
+chmod +x runtt-aarch64 && sudo mv runtt-aarch64 /usr/local/bin/runtt
+```
+
+`x86_64`, `aarch64` and `armv7hf`. Each is statically linked against musl, so
+there is no libc, libudev or glibc version to match on the device — which is the
+point, since the devices this runs on are rarely the machine it was built on.
+
+Then, with **podman**, which takes the runtime as a path and needs no daemon
+configuration:
+
+```bash
+podman run --rm --network none --runtime=/usr/local/bin/runtt \
+  --annotation dev.runtt.target=usb:my-board-01 my-firmware:v1
+```
+
+Docker needs the runtime registered with the daemon first
+(`sudo scripts/register-docker.sh`), after which `--runtime=runtt` resolves by
+name. Don't build with one engine and run with the other — they keep separate
+image stores.
+
+Boards need provisioning once before any of this: see
+[runtt-boards](https://github.com/shaunmulligan/runtt-boards).
 
 ## Trying it, with no hardware
 

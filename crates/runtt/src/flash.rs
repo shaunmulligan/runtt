@@ -13,8 +13,20 @@
 //! Confirmation is therefore reachable only through the contract. An image that
 //! removed or broke the contract can never be confirmed, because confirming
 //! requires the very capability that was lost — so contract loss is never
-//! remotely permanent. If we never send the confirm, MCUboot reverts on the next
-//! reset by itself.
+//! remotely permanent.
+//!
+//! With one caveat that matters, and that this comment used to gloss over by
+//! saying "MCUboot reverts on the next reset by itself". It does — but NOTHING
+//! SCHEDULES THAT RESET. Observed on a Pico 2 W: an image that boots and runs
+//! but cannot answer SMP was swapped in, could not be confirmed, and the board
+//! then ran it indefinitely. The revert was correct when it came, and it came
+//! only because an operator reset the board.
+//!
+//! The container exiting non-zero does not close this. The restart policy fires,
+//! this runtime comes back, and it cannot upload anything — the board is
+//! unmanageable, which is the whole problem. Recovery needs a reboot from the
+//! device side: see §6 of docs/ROADMAP.md for the confirm-deadline design and
+//! the reason it is parked rather than guessed at.
 
 use anyhow::{bail, Context, Result};
 use runtt_smp::can::IsoTpTransport;

@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write        # the release job needs it; nothing else does
+
 env:
   CARGO_TERM_COLOR: always
   # Fail on warnings: this codebase currently has none, and the cheapest time to
@@ -410,3 +413,182 @@ jobs:
             exit 1
           fi
           grep -E "^test result:" /tmp/sim-test.log
+
+  # ---------------------------------------------------------------------------
+  # The install path. Until this existed, using runtt meant having a Rust
+  # toolchain: the repo published nothing, so `runtt-boards` shipped provisioning
+  # images for boards while the runtime that drives them shipped nowhere.
+  #
+  # Static musl, no cross toolchain. `rustup target add` plus rust-lld does the
+  # whole job because the dependency set was chosen for it -- serialport is
+  # `default-features = false` precisely to avoid the libudev-sys native dep, and
+  # nothing else links C. That is a property worth protecting: adding a
+  # dependency that needs libudev, libusb or openssl breaks this job, and this
+  # job failing is the warning.
+  #
+  # Runs on every push, not just tags. Finding out at release time that the
+  # cross-build broke is finding out too late.
+  # ---------------------------------------------------------------------------
+  binaries:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: x86_64
+            machine: Advanced Micro Devices X86-64
+          - target: aarch64-unknown-linux-musl
+            arch: aarch64
+            machine: AArch64
+          - target: armv7-unknown-linux-musleabihf
+            arch: armv7hf
+            machine: ARM
+    env:
+      # Repeated, not inherited. A job-level `env` REPLACES the workflow-level
+      # one for the keys it names, so leaving out `-D warnings` here would
+      # quietly drop the lint gate for these builds. (The mcuboot-sim job relies
+      # on that same override in the other direction.)
+      RUSTFLAGS: >-
+        -D warnings
+        -C linker=rust-lld
+        -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust and the target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Echo the failure tail as annotations, the same as mcuboot-sim. Written
+      # without it first, and the first failure of this job reported nothing but
+      # "exit code 101" three times over -- while the actual cause was one line
+      # naming a file. Log download needs admin rights on the repository;
+      # annotations do not.
+      - name: Build
+        run: |
+          set -o pipefail
+          if ! cargo build --release --target ${{ matrix.target }} --bins 2>&1 \
+               | tee /tmp/build.log; then
+            echo "::error::cross-build for ${{ matrix.target }} failed"
+            { grep -vE "^[[:space:]]*(Compiling|Downloading|Downloaded|Updating|Fresh|Adding|Locking) " \
+                /tmp/build.log \
+                | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -9 \
+                | while IFS= read -r l; do echo "::error::${l:0:400}"; done; } || true
+            exit 1
+          fi
+
+      # Check the ARTEFACT. A cross-build that silently produced a dynamically
+      # linked binary, or one for the wrong architecture, would publish
+      # something that cannot run on the device it is named for -- and nobody
+      # would find out until they tried it on a board.
+      #
+      # The test is "has no PT_INTERP segment", i.e. names no dynamic loader,
+      # because that is architecture-independent. Do NOT grep `file` for
+      # "statically linked": the x86_64 build is a static-PIE and reports
+      # "static-pie linked" instead, so that check passes on two targets and
+      # fails on the third.
+      - name: The binaries are static and the right architecture
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for b in runtt runtt-mock; do
+            p="target/${{ matrix.target }}/release/$b"
+            [ -f "$p" ] || { echo "::error::$p was not built"; exit 1; }
+
+            interp=$(readelf -l "$p" | grep -c INTERP || true)
+            if [ "$interp" -ne 0 ]; then
+              echo "::error::$b for ${{ matrix.target }} is dynamically linked"
+              readelf -l "$p" | grep -A2 INTERP
+              exit 1
+            fi
+
+            machine=$(readelf -h "$p" | sed -n 's/^ *Machine: *//p')
+            if [ "$machine" != "${{ matrix.machine }}" ]; then
+              echo "::error::$b is for '$machine', expected '${{ matrix.machine }}'"
+              exit 1
+            fi
+
+            echo "  $b: static, $machine, $(stat -c %s "$p") bytes"
+            cp "$p" "dist/$b-${{ matrix.arch }}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-binaries-${{ matrix.arch }}
+          path: dist/*
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Tag-gated, like runtt-boards': a push to main publishes nothing, and the
+  # assets appear when a version tag is pushed.
+  #
+  # Individual binaries rather than one tarball, for the same reason the board
+  # images are individual files: someone provisioning an aarch64 device wants one
+  # download, not an archive holding two architectures they cannot run.
+  # ---------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test, native-sim, mcuboot-sim, binaries]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ci-binaries-*
+          merge-multiple: true
+          path: dist
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ( cd dist && sha256sum runtt-* > SHA256SUMS )
+          ls -la dist
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Static Linux binaries for the runtt OCI runtime, built from \`${GITHUB_SHA}\`.
+
+          | Architecture | Download | Typical device |
+          |---|---|---|
+          | x86_64 | \`runtt-x86_64\` | an x86 host or SBC |
+          | aarch64 | \`runtt-aarch64\` | Raspberry Pi 3/4/5, Jetson |
+          | armv7hf | \`runtt-armv7hf\` | Raspberry Pi 2/3 on a 32-bit OS |
+
+          No dependencies: each is statically linked against musl, so there is no
+          libc, libudev or glibc version to match on the device.
+
+          \`\`\`bash
+          curl -LO https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/runtt-aarch64
+          chmod +x runtt-aarch64 && sudo mv runtt-aarch64 /usr/local/bin/runtt
+          \`\`\`
+
+          Then run a firmware container with **podman**, which takes the runtime as
+          a path and needs no daemon configuration:
+
+          \`\`\`bash
+          podman run --rm --network none --runtime=/usr/local/bin/runtt \\
+            --annotation dev.runtt.target=usb:my-board-01 my-firmware:v1
+          \`\`\`
+
+          For Docker the runtime has to be registered with the daemon first --
+          \`scripts/register-docker.sh\` in this repository -- after which
+          \`--runtime=runtt\` resolves by name.
+
+          \`runtt-mock-*\` is also attached: it speaks the wire contract over a pty,
+          so the whole deploy path can be exercised with no board attached. See the
+          README.
+
+          Verify what you downloaded against \`SHA256SUMS\`.
+
+          Provisioning images for the boards themselves live in
+          [runtt-boards](https://github.com/shaunmulligan/runtt-boards/releases).
+          " \
+            dist/* || gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

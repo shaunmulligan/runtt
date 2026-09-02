@@ -392,7 +392,7 @@ safety-relevant needs its own staleness check.
 | Item | State |
 |---|---|
 | MCUboot `find_last_idx` unbounded loop | patch written and carried via `west patch`; simulator green on both swap modes; **needs a regression test, then filing** |
-| Revert on hardware | never tested on a real board — the one safety property still unproven |
+| Revert on hardware | **proven on a Pico 2 W, 2026-09-02** — a deliberately unmanageable image failed to confirm and MCUboot reverted. But see §6: the revert needed a reboot that nothing schedules |
 | Hardware CI gate | designed in `docs/HARDWARE_GATE.md`, deliberately not built |
 | Signing key | still MCUboot's published development key; no trust root is enrolled |
 | Feather recovery | SWD-only now; the backup in `feather-backup/` is verified by checksum but **the restore has never been exercised** |
@@ -401,6 +401,92 @@ safety-relevant needs its own staleness check.
 The signing key is the one that must not reach a fleet. Rotating it means
 re-flashing every board over SWD, so it is a provisioning decision, not a
 build-time one.
+
+---
+
+## 6. Revert needs a reboot, and nothing schedules it
+
+**Parked deliberately, 2026-09-02.** The gap is understood and recorded rather
+than fixed, because the fix changes device behaviour on every board and the
+default wants a decision, not a guess.
+
+### What actually happens
+
+`crates/runtt/src/flash.rs` states the safety property, and the last line of it
+is the problem:
+
+> If we never send the confirm, MCUboot reverts on the next reset by itself.
+
+True about what MCUboot does **at boot**. But nothing in the system schedules
+that boot. Observed end to end on a Pico 2 W:
+
+1. an image with `CONFIG_MCUMGR_TRANSPORT_UART=n` was uploaded and marked test —
+   it boots and runs perfectly well, it simply cannot be talked to
+2. MCUboot swapped it in and booted it as a test image
+3. the host could not confirm it, and said so
+4. **the board went on running the unmanageable image indefinitely**
+5. only an operator-issued reset made MCUboot revert, at which point it did so
+   correctly and the previous image came back confirmed
+
+So the property holds — eventually, and only if somebody resets the board. The
+container exiting non-zero and the restart policy firing does not help: the
+runtime comes back up and cannot upload anything, because the board is
+unmanageable. That is the loop nothing breaks.
+
+The crash case has the same shape and is worth stating separately, because it is
+easy to assume otherwise: Zephyr's default fatal handler **halts**
+(`arch_system_halt`, `kernel/fatal.c`), it does not reboot. An image that hard
+faults therefore also never reverts.
+
+### The fix, in three layers
+
+**Layer 1 — a confirm deadline in the runtt module.** At boot, if
+`boot_is_img_confirmed()` is false, arm delayed work for N seconds; at the
+deadline, re-check and `sys_reboot()` if still unconfirmed. MCUboot reverts on
+that boot. Everything needed already exists — `boot_is_img_confirmed()` and
+`mcuboot_swap_type()` are in `zephyr/dfu/mcuboot.h`, and
+`CONFIG_MCUBOOT_IMG_MANAGER=y` is already set on every MCUboot target we build.
+Roughly 40 lines in `src/health.c`.
+
+This closes the observed case: firmware that runs but cannot be confirmed.
+
+> **The footgun, and it points the wrong way.** A deadline shorter than the
+> host's realistic confirm time reverts *good* firmware — it would turn the
+> safety property into a liability. Measured confirm latency is ~2 s, but a
+> loaded host or a slow container start is unbounded in practice, so the default
+> wants to be generous (~2 minutes) and Kconfig-tunable. Any implementation must
+> be tested in BOTH directions on hardware: a broken image self-reverts, **and a
+> good image survives the deadline untouched.** The second test is the one that
+> matters, and the one that is easy not to write.
+
+**Layer 2 — a hardware watchdog.** Layer 1 cannot help firmware that faults
+before the module initialises, or firmware that does not include the module at
+all. A WDT armed early and fed only while the contract is up covers both, and it
+is what makes this property hold for *arbitrary* firmware rather than only ours.
+RP2350 has `wdt0` (`raspberrypi,pico-watchdog`, driver `wdt_rpi_pico.c`) and the
+nRF52840 has one too.
+
+Note what does **not** do this: MCUboot's `CONFIG_BOOT_WATCHDOG_FEED` only feeds
+a watchdog *while doing the swap* (`bootloader/mcuboot/boot/zephyr/Kconfig`). It
+does not arm one for the application, so this is separate per-SoC work.
+
+**Layer 3 — host-side tidy-up.** On the next deploy, if the device answers SMP
+with an unconfirmed image pending, reset it rather than proceeding. Cheap, but it
+only helps cases that were already recoverable.
+
+### The open decision
+
+Layer 1 defaulting **on** changes device behaviour for the Feather and Pico 1 as
+well, and it is a self-reboot path, so the default is a product decision rather
+than an implementation one:
+
+* **default on** — the safety property actually holds everywhere, at the cost of
+  a reboot timer on every board;
+* **default off, boards opt in** — no behaviour change, but the property stays
+  unenforced by default, which rather undercuts the point.
+
+Until this lands, `flash.rs`'s module comment has been corrected so it no longer
+reads as though recovery were automatic.
 
 ---
 
