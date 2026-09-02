@@ -12,6 +12,16 @@ sharing the link, so the gap looked like intended behaviour.
 
 Three routes below, cheapest first. Each is self-contained.
 
+> **Paths below are from the monorepo layout these transcripts were recorded
+> in.** The repositories have since been split, so `firmware/app` is now
+> `boards/app-test` (or `boards/idle`) in
+> [`runtt-boards`](https://github.com/shaunmulligan/runtt-boards),
+> `firmware/bringup` is `boards/bringup`, and `firmware/runtt` is its own
+> repository, checked out by west at `modules/runtt`. The commands are left as
+> they were run rather than retyped untested; `-DZEPHYR_EXTRA_MODULES` in
+> particular is no longer needed at all, because west now registers the module
+> from the manifest. See `scripts/build-feather.sh` for the current invocation.
+
 ---
 
 ## 1. Two minutes, no Zephyr: the mock

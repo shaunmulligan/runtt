@@ -345,6 +345,20 @@ jobs:
       # admin rights, so a failure here reports what went wrong rather than only
       # that something did. All 25 tests pass locally, so the first failure of
       # this job was environmental and this is how we find out how.
+      # This exact build takes 9.5s from a clean workspace on the maintainer's
+      # machine and failed on the runner, so the difference is the environment.
+      # Record it rather than guess at it.
+      - name: Toolchain versions
+        working-directory: bootloader/mcuboot/sim
+        run: |
+          rustc --version; cargo --version
+          cc --version | head -1
+          python3 --version
+          echo "--- submodule state the simulator links:"
+          git -C .. submodule status ext/mbedtls || true
+          echo "--- ext/tinycrypt present (vendored, not a submodule):"
+          ls ../ext/tinycrypt | head -5 || echo "MISSING"
+
       - name: Build the simulator
         working-directory: bootloader/mcuboot/sim
         env:
@@ -353,8 +367,14 @@ jobs:
           set -o pipefail
           if ! cargo build --tests --features sig-ecdsa 2>&1 | tee /tmp/sim-build.log; then
             echo "::error::the mcuboot simulator did not compile"
-            grep -E "^error|error\[|cannot find|No such file|fatal error" /tmp/sim-build.log \
-              | head -8 | while IFS= read -r l; do echo "::error::$l"; done
+            # The tail minus progress noise, NOT a grep for expected patterns.
+            # The first version grepped for ^error and friends, matched nothing,
+            # and reported only that something had failed -- which is all the
+            # exit code already said. GitHub keeps 10 error annotations per step,
+            # so this is the header plus nine lines.
+            { grep -vE "^[[:space:]]*(Compiling|Downloading|Downloaded|Updating|Fresh|Adding|Locking|Installing|Checking) " \
+                /tmp/sim-build.log | tail -9 \
+                | while IFS= read -r l; do echo "::error::${l:0:400}"; done; } || true
             exit 1
           fi
 
@@ -370,8 +390,9 @@ jobs:
           set -o pipefail
           if ! cargo test --features sig-ecdsa 2>&1 | tee /tmp/sim-test.log; then
             echo "::error::mcuboot swap/revert tests failed"
-            grep -E "^error|panicked|FAILED|^failures:|assertion" /tmp/sim-test.log \
-              | head -8 | while IFS= read -r l; do echo "::error::$l"; done
+            { { grep -E "panicked|FAILED|^failures:|assertion" /tmp/sim-test.log || \
+                grep -vE "^[[:space:]]*(Compiling|Downloading|Fresh) " /tmp/sim-test.log; } \
+                | tail -9 | while IFS= read -r l; do echo "::error::${l:0:400}"; done; } || true
             exit 1
           fi
           grep -E "^test result:" /tmp/sim-test.log
