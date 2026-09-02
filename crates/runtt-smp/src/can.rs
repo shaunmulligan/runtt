@@ -11,11 +11,11 @@
 //! which is the other datagram bearer it supports.
 
 use mcumgr_toolkit::transport::{
-    ReceiveError, SMP_HEADER_SIZE, SMP_TRANSFER_BUFFER_SIZE, SendError, Transport,
+    ReceiveError, SendError, Transport, SMP_HEADER_SIZE, SMP_TRANSFER_BUFFER_SIZE,
 };
+use runtt_transport::can::IsoTpChannel;
 use std::io::{Read, Write};
 use std::time::Duration;
-use runtt_transport::can::IsoTpChannel;
 
 /// SMP over ISO-TP on a CAN bus.
 pub struct IsoTpTransport {

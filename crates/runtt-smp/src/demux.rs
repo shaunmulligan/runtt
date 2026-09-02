@@ -27,13 +27,13 @@
 
 use anyhow::{Context, Result};
 use mcumgr_toolkit::transport::serial::ConfigurableTimeout;
+use runtt_transport::usb::SerialChannel;
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::Duration;
-use runtt_transport::usb::SerialChannel;
 
 /// SMP console framing markers. The first line of a packet carries
 /// `0x06 0x09`; continuations carry `0x04 0x14`. See `docs/WIRE_CONTRACT.md`.
@@ -139,12 +139,8 @@ impl LogDemux {
 /// client's next read into EOF — reported upward as a failed heartbeat, which
 /// is what makes the container exit non-zero. Also returns when asked to stop,
 /// within one poll interval, so the port is released promptly for a reconnect.
-fn pump<S>(
-    mut channel: SerialChannel,
-    tx: &mpsc::Sender<Vec<u8>>,
-    mut sink: S,
-    stop: &AtomicBool,
-) where
+fn pump<S>(mut channel: SerialChannel, tx: &mpsc::Sender<Vec<u8>>, mut sink: S, stop: &AtomicBool)
+where
     S: FnMut(&[u8]),
 {
     let mut line: Vec<u8> = Vec::with_capacity(128);

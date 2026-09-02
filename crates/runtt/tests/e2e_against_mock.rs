@@ -5,9 +5,9 @@
 //! exercises the actual binary, the actual OCI verbs and the actual SMP stack —
 //! not an in-process approximation.
 
-use serialport::SerialPort;
 use runtt_mock::faults::Fault;
 use runtt_mock::server::Server;
+use serialport::SerialPort;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};

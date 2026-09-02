@@ -177,10 +177,30 @@ jobs:
 
       # The CAN gate SKIPS without a bus, so the setup is a hard step: a silent
       # skip in CI would be worse than no job at all.
+      # vcan is usually present on a GitHub runner; can-isotp often is not,
+      # because it lives in linux-modules-extra rather than the base kernel
+      # package. Install that first, then report per module rather than dying on
+      # whichever modprobe happens to fail -- a bare "modprobe: FATAL" says
+      # nothing about which of the two is missing.
       - name: Set up a virtual CAN bus
         run: |
-          sudo modprobe vcan
-          sudo modprobe can-isotp
+          set -uo pipefail
+          echo "kernel: $(uname -r)"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" \
+            || echo "note: no linux-modules-extra for this kernel; continuing"
+          missing=""
+          for m in vcan can-isotp; do
+            if sudo modprobe "$m" 2>/dev/null; then echo "loaded  $m"
+            else echo "MISSING $m"; missing="$missing $m"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::this runner's kernel has no$missing, so the CAN gate cannot run here."
+            echo "The gate SKIPS without a bus, and a silent skip in CI is worse than no job,"
+            echo "so this fails deliberately. Options: a self-hosted runner, or drop the CAN"
+            echo "gate from this workflow and rely on runtt-boards' hardware gate instead."
+            exit 1
+          fi
           sudo ip link add dev vcan0 type vcan
           sudo ip link set vcan0 up
           sudo ip link property add dev vcan0 altname zcan0   # native_sim hardcodes this
@@ -198,29 +218,51 @@ jobs:
     # simulator compiles the real bootutil C sources over a NOR flash model with
     # injectable failures, so swap/revert/confirm correctness -- including
     # interrupted-swap robustness -- is tested here instead.
+    #
+    # This job does not check out this repository: it tests MCUboot, not runtt.
+    # It previously did, and then ran `west init` in the same directory, which is
+    # what broke it.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
 
-      - name: Install west
-        run: |
-          pip install --user west
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      # `west init -l firmware` before the split; that directory is in
-      # runtt-boards now. Its manifest is also the thing that pins the MCUboot
-      # revision, so taking it from there keeps the simulator testing the same
-      # bootloader the boards are built against -- cloning mcuboot directly would
-      # silently drift onto a different revision.
+      - name: Install west
+        run: pip install --quiet west
+
+      # Through runtt-boards' manifest, because that is what pins the MCUboot
+      # revision. Cloning mcuboot directly is simpler and wrong: the simulator
+      # would drift onto a different bootloader from the one the boards are built
+      # against, and then pass or fail for reasons unrelated to what we ship.
+      # Shares native-sim's cache: same manifest, same workspace, so whichever
+      # job runs first populates it.
+      - name: Cache the west workspace
+        uses: actions/cache@v4
+        with:
+          path: |
+            zephyr
+            modules
+            bootloader
+            boards
+            .west
+          key: mcuboot-ws-${{ hashFiles('.github/workflows/ci.yml') }}
+
       - name: Fetch MCUboot at the revision runtt-boards pins
         run: |
-          west init -m https://github.com/shaunmulligan/runtt-boards --mr main
-          west update --narrow -o=--depth=1 mcuboot
+          west init -m https://github.com/shaunmulligan/runtt-boards --mr main . \
+            2>/dev/null || echo "already initialised"
+          # A PLAIN update, not `west update mcuboot`. MCUboot arrives through the
+          # manifest's `import:` rather than as a direct project, so west cannot
+          # address it by name and says so:
+          #   "one or more projects are unknown or defined via imports"
+          # That is what broke this job.
+          west update --narrow -o=--depth=1
           # west fetches the mcuboot repo but not its git submodules, and the
           # simulator links mbedtls and tinycrypt from ext/.
           git -C bootloader/mcuboot submodule update --init --depth 1 \

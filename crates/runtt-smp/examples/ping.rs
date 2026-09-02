@@ -5,8 +5,8 @@
 //! Useful when the thing on the other end might be a bootloader in recovery,
 //! an application, or nothing.
 use runtt_smp::{SmpClient, ToolkitClient};
-use std::time::Duration;
 use runtt_transport::usb::SerialChannel;
+use std::time::Duration;
 
 fn main() {
     let dev = std::env::args().nth(1).expect("usage: ping <device>");

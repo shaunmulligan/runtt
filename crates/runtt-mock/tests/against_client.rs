@@ -5,11 +5,11 @@
 //! spec, so agreement between them is strong evidence both are correct — much
 //! stronger than either one's self-consistency.
 
-use runtt_smp::{SmpClient, ToolkitClient};
 use runtt_mock::faults::Fault;
 use runtt_mock::server::Server;
-use std::time::Duration;
+use runtt_smp::{SmpClient, ToolkitClient};
 use runtt_transport::usb::SerialChannel;
+use std::time::Duration;
 
 /// Stand up a mock on one end of a pty pair and a client on the other.
 fn rig(fault: Fault) -> (ToolkitClient, std::thread::JoinHandle<()>) {

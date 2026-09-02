@@ -1,10 +1,10 @@
 //! The single-channel demux: application logs and SMP traffic on one link.
 
 use runtt_smp::demux::{is_smp_line, LogDemux, MARKER_CONT, MARKER_START};
+use runtt_transport::usb::SerialChannel;
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::time::Duration;
-use runtt_transport::usb::SerialChannel;
 
 #[test]
 fn classifies_lines_by_their_framing_marker() {

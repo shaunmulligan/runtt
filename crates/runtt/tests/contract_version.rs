@@ -90,7 +90,9 @@ fn runtime_major() -> u32 {
 
 #[test]
 fn the_document_and_the_firmware_agree() {
-    let Some(fw) = firmware_default_version() else { return };
+    let Some(fw) = firmware_default_version() else {
+        return;
+    };
     assert_eq!(
         documented_version(),
         fw,
@@ -228,7 +230,9 @@ fn the_mock_declares_the_documented_contract() {
 fn the_describe_group_is_the_per_user_base() {
     // 64 is MGMT_GROUP_ID_PERUSER. Below it the ids belong to Zephyr, so a
     // command there would be squatting on someone else's number.
-    let Some(kconfig) = read_firmware("firmware/runtt/zephyr/Kconfig") else { return };
+    let Some(kconfig) = read_firmware("firmware/runtt/zephyr/Kconfig") else {
+        return;
+    };
     assert!(
         kconfig.contains("default 64"),
         "RUNTT_SMP_GROUP_ID should default to 64 (MGMT_GROUP_ID_PERUSER)"
@@ -239,7 +243,10 @@ fn the_describe_group_is_the_per_user_base() {
 #[test]
 fn the_documented_interface_strings_are_the_ones_we_match_on() {
     let doc = read("docs/WIRE_CONTRACT.md");
-    for s in [runtt_transport::usb::IFACE_MGMT, runtt_transport::usb::IFACE_LOG] {
+    for s in [
+        runtt_transport::usb::IFACE_MGMT,
+        runtt_transport::usb::IFACE_LOG,
+    ] {
         assert!(doc.contains(s), "WIRE_CONTRACT.md should document {s}");
         // And the udev rules must key off the same strings, or a device that
         // honours the contract still will not be discovered.
@@ -247,7 +254,8 @@ fn the_documented_interface_strings_are_the_ones_we_match_on() {
         assert!(rules.contains(s), "udev rules should match on {s}");
         // As should the hardware overlay that produces them -- when the firmware
         // module is in this repository. runtt-zephyr asserts it on its own side.
-        if let Some(overlay) = read_firmware("firmware/runtt/snippets/runtt/boards/rpi_pico.overlay")
+        if let Some(overlay) =
+            read_firmware("firmware/runtt/snippets/runtt/boards/rpi_pico.overlay")
         {
             assert!(
                 overlay.contains(s),

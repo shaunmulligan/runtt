@@ -65,9 +65,7 @@ impl Resolved {
     pub fn log_source(&self) -> Option<LogSource> {
         match self {
             Resolved::Serial { log, .. } => log.clone().map(LogSource::Serial),
-            Resolved::Can {
-                log: Some(p), ..
-            } => Some(LogSource::Serial(p.clone())),
+            Resolved::Can { log: Some(p), .. } => Some(LogSource::Serial(p.clone())),
             Resolved::Can {
                 iface,
                 node_id,
@@ -110,9 +108,7 @@ impl Resolved {
                 .unwrap_or_else(|_| mgmt.clone())
                 .display()
                 .to_string(),
-            Resolved::Can {
-                iface, node_id, ..
-            } => format!("can:{iface}/{node_id:#x}"),
+            Resolved::Can { iface, node_id, .. } => format!("can:{iface}/{node_id:#x}"),
         }
     }
 
@@ -131,9 +127,7 @@ impl std::fmt::Display for Resolved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Resolved::Serial { mgmt, .. } => write!(f, "{}", mgmt.display()),
-            Resolved::Can {
-                iface, node_id, ..
-            } => write!(f, "can:{iface}/{node_id:#x}"),
+            Resolved::Can { iface, node_id, .. } => write!(f, "can:{iface}/{node_id:#x}"),
         }
     }
 }
@@ -556,7 +550,17 @@ mod tests {
                 "{path} should read as a port path"
             );
         }
-        for serial in ["feather-01", "arm-01", "3", "3-", "-4", "3-4a", "a-4", "3..4", "3-4."] {
+        for serial in [
+            "feather-01",
+            "arm-01",
+            "3",
+            "3-",
+            "-4",
+            "3-4a",
+            "a-4",
+            "3..4",
+            "3-4.",
+        ] {
             assert_eq!(
                 UsbSelector::parse(serial),
                 UsbSelector::Serial(serial.into()),

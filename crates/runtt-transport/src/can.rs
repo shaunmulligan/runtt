@@ -19,7 +19,7 @@
 //! Fixing the reply id by convention rather than configuring both halves keeps a
 //! placement label to one number, which is what the OCI annotation carries.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::Duration;
 
@@ -59,8 +59,8 @@ impl IsoTpChannel {
     /// `node_id + 1`; see the module docs for why that is a convention rather
     /// than a setting.
     pub fn open(iface: &str, node_id: u32, timeout: Duration) -> Result<Self> {
-        let ifindex = if_nametoindex(iface)
-            .with_context(|| format!("no such CAN interface {iface:?}"))?;
+        let ifindex =
+            if_nametoindex(iface).with_context(|| format!("no such CAN interface {iface:?}"))?;
 
         // SAFETY: a plain socket(2) with constants from linux/can.h.
         let fd = unsafe { libc::socket(AF_CAN, libc::SOCK_DGRAM, CAN_ISOTP) };
@@ -95,8 +95,11 @@ impl IsoTpChannel {
             )
         };
         if rc < 0 {
-            return Err(anyhow::Error::new(std::io::Error::last_os_error())
-                .context(format!("failed to bind ISO-TP to {iface} node {node_id:#x}")));
+            return Err(
+                anyhow::Error::new(std::io::Error::last_os_error()).context(format!(
+                    "failed to bind ISO-TP to {iface} node {node_id:#x}"
+                )),
+            );
         }
 
         let ch = Self {
@@ -293,8 +296,8 @@ pub struct CanLogReader {
 impl CanLogReader {
     /// Listen for log frames on `iface` carrying identifier `id`.
     pub fn open(iface: &str, id: u32, timeout: Duration) -> Result<Self> {
-        let ifindex = if_nametoindex(iface)
-            .with_context(|| format!("no such CAN interface {iface:?}"))?;
+        let ifindex =
+            if_nametoindex(iface).with_context(|| format!("no such CAN interface {iface:?}"))?;
 
         // SAFETY: a plain socket(2) with constants from linux/can.h.
         let fd = unsafe { libc::socket(AF_CAN, libc::SOCK_RAW, CAN_RAW) };

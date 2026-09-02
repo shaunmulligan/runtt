@@ -5,9 +5,9 @@
 //! Takes the node id from the placement label and listens on `node_id + 2`,
 //! the same derivation the runtime makes, so what this prints is exactly what
 //! would reach the container's stdout.
+use runtt_transport::can::CanLogReader;
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
-use runtt_transport::can::CanLogReader;
 
 fn main() {
     let mut args = std::env::args().skip(1);

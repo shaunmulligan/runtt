@@ -3,12 +3,12 @@
 //! Also checks the negative case, which is the one that matters in the field: a
 //! board without our module must produce a clear error rather than a timeout.
 
-use runtt_smp::describe::GROUP_PERUSER;
-use runtt_smp::ToolkitClient;
 use runtt_mock::faults::Fault;
 use runtt_mock::server::Server;
-use std::time::Duration;
+use runtt_smp::describe::GROUP_PERUSER;
+use runtt_smp::ToolkitClient;
 use runtt_transport::usb::SerialChannel;
+use std::time::Duration;
 
 fn rig(fault: Fault) -> (ToolkitClient, std::thread::JoinHandle<()>) {
     let (host, device) = SerialChannel::pty_pair().expect("pty pair");
@@ -35,7 +35,8 @@ fn describe_reports_the_contract() {
     // check is that the field is a version at all.
     let mut parts = d.contract.split('.');
     assert!(
-        parts.clone().count() == 3 && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())),
+        parts.clone().count() == 3
+            && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())),
         "contract should be a dotted numeric version, got {:?}",
         d.contract
     );

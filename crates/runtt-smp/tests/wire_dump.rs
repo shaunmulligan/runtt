@@ -1,8 +1,8 @@
 //! Diagnostic: capture the exact bytes mcumgr-toolkit puts on the wire.
 use base64::Engine;
+use runtt_transport::usb::SerialChannel;
 use std::io::Read;
 use std::time::Duration;
-use runtt_transport::usb::SerialChannel;
 
 fn capture(op: &'static str) -> Option<Vec<u8>> {
     let (host, mut device) = SerialChannel::pty_pair().unwrap();

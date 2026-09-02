@@ -5,9 +5,9 @@
 //! The counterpart to `ping`, for the other transport. Needs the `can-isotp`
 //! kernel module and an interface that is UP; see docs/ROADMAP.md.
 
-use runtt_smp::{SmpClient, ToolkitClient, can::IsoTpTransport};
-use std::time::Duration;
+use runtt_smp::{can::IsoTpTransport, SmpClient, ToolkitClient};
 use runtt_transport::can::IsoTpChannel;
+use std::time::Duration;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -36,7 +36,10 @@ fn main() {
         Ok(s) if s.is_empty() => println!("  image list -> no images"),
         Ok(s) => {
             for i in s {
-                println!("  slot {} active={} confirmed={} v{}", i.slot, i.active, i.confirmed, i.version);
+                println!(
+                    "  slot {} active={} confirmed={} v{}",
+                    i.slot, i.active, i.confirmed, i.version
+                );
             }
         }
         Err(e) => println!("  image list failed: {e:#}"),

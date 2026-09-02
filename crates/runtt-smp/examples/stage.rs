@@ -12,8 +12,8 @@
 //! the upload that normally precedes it.
 
 use runtt_smp::{SmpClient, ToolkitClient};
-use std::time::Duration;
 use runtt_transport::usb::SerialChannel;
+use std::time::Duration;
 
 fn main() {
     let mut args = std::env::args().skip(1);

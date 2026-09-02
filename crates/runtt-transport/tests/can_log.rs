@@ -12,10 +12,10 @@
 //! see each other's frames interleaved mid-line. That is not a flake to retry;
 //! it is the bus behaving exactly as a bus does.
 
+use runtt_transport::can::CanLogReader;
 use std::io::{BufRead, BufReader};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::time::Duration;
-use runtt_transport::can::CanLogReader;
 
 const AF_CAN: libc::c_int = 29;
 const CAN_RAW: libc::c_int = 1;

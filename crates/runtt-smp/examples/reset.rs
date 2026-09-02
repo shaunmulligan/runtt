@@ -8,8 +8,8 @@
 //!   cargo run -p runtt-smp --example reset -- /dev/runtt/<tag>-mgmt
 
 use runtt_smp::{SmpClient, ToolkitClient};
-use std::time::Duration;
 use runtt_transport::usb::SerialChannel;
+use std::time::Duration;
 
 fn main() {
     let dev = std::env::args().nth(1).expect("usage: reset <device>");

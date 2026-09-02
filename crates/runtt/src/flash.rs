@@ -19,11 +19,11 @@
 use anyhow::{bail, Context, Result};
 use runtt_smp::can::IsoTpTransport;
 use runtt_smp::{LogDemux, SmpClient, ToolkitClient};
-use std::path::Path;
-use std::time::{Duration, Instant};
 use runtt_transport::can::{CanLogReader, IsoTpChannel};
 use runtt_transport::resolve::{LogSource, Resolved};
 use runtt_transport::usb::SerialChannel;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 /// Baud is meaningless on CDC-ACM but must be something; 115200 is what a real
 /// UART bring-up link will use.
@@ -51,9 +51,7 @@ pub struct Deploy<'a> {
 fn connect(resolved: &Resolved) -> Result<ToolkitClient> {
     let c = match resolved {
         Resolved::Serial { mgmt, log } => connect_serial(mgmt, log.is_none())?,
-        Resolved::Can {
-            iface, node_id, ..
-        } => connect_can(iface, *node_id)?,
+        Resolved::Can { iface, node_id, .. } => connect_can(iface, *node_id)?,
     };
     // Ask the device for its own buffer sizes rather than assuming Zephyr's
     // defaults; a mis-sized frame is a confusing mid-upload failure.

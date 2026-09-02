@@ -212,7 +212,9 @@ pub fn run(
             // A CAN target has no character device to read, so it cannot serve
             // as somebody else's log channel.
             runtt_transport::resolve::Resolved::Can { .. } => {
-                anyhow::bail!("log target {lt} is a CAN target; a log channel must be a serial device")
+                anyhow::bail!(
+                    "log target {lt} is a CAN target; a log channel must be a serial device"
+                )
             }
         }
     }
@@ -220,7 +222,9 @@ pub fn run(
     if resolved.log_source().is_none() {
         // Not a failure: single-channel targets and probe-UART bring-up both
         // look like this. Say so, because silence here is confusing.
-        println!("mcu: single channel; application logs are demultiplexed from the management link");
+        println!(
+            "mcu: single channel; application logs are demultiplexed from the management link"
+        );
     }
 
     let deploy = crate::flash::Deploy {

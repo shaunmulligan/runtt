@@ -135,7 +135,10 @@ mod tests {
 
         let first = acquire_resolved(&root, key).expect("first claim should succeed");
         let second = acquire_resolved(&root, key);
-        assert!(second.is_err(), "the second claim on one device must be refused");
+        assert!(
+            second.is_err(),
+            "the second claim on one device must be refused"
+        );
         assert!(
             second.unwrap_err().to_string().contains("already claimed"),
             "the refusal should say why"
