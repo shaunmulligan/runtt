@@ -300,6 +300,40 @@ after.
 
 ---
 
+## 3b. `runtt-provision` as a Rust binary
+
+`runtt-boards`' `scripts/runtt-board` provisions a board from a single downloaded
+file today: it fetches the published image, writes a name into it and flashes it,
+needing no checkout and no Zephyr toolchain. It reads `boards.json` with the
+stdlib so it does not even need pyyaml.
+
+**On Linux only**, and the reason is worth stating precisely: *the language is not
+what blocks cross-platform, the shell-outs are.* It calls `pyocd`, `udisksctl`,
+`findmnt`, `sha256sum` and `sync`. `udisksctl` and `findmnt` are Linux-only and
+`pyocd` needs Python, so a mechanical Rust port that still shelled out to those
+would be **no more portable than the Python it replaced**.
+
+A rewrite earns its keep only by replacing them:
+
+| Shell-out | Replacement |
+|---|---|
+| `pyocd` | **`probe-rs` as a library** — 0.32.0, published with `has_lib: true`, CMSIS-DAP support, and it implements the nRF52840 CTRL-AP unlock we depend on (see runtt-boards' PROVISIONING.md) |
+| `sha256sum` | the `sha2` crate, already a dependency here |
+| `udisksctl` + `findmnt` | native volume discovery — `/dev/disk/by-label` on Linux, `/Volumes/RPI-RP2` on macOS, drive letters on Windows. **This is the actual portability work** |
+| `pyyaml` | `serde_yaml`, though `boards.json` already removes that need |
+
+**Where it goes:** a second crate in this workspace, released alongside the
+runtime. The musl cross-build machinery is already proven — 3.5–4.8 MB static
+binaries for x86_64, aarch64 and armv7 with no external toolchain — and Windows
+and macOS are standard additional targets. It should fetch `boards.json` at
+runtime exactly as the Python does, so the binary stays board-agnostic and the
+manifest stays in `runtt-boards` where contributors add boards.
+
+**When:** once a non-Linux user actually appears, or when pyocd becomes the thing
+that hurts. Not before: the Python works, covers the hardware on the bench, and a
+port done for its own sake would be effort spent for no gain. Start with the SWD
+path if it does happen, since that is where `pyocd` costs the most.
+
 ## 4. The robotics demo
 
 ### The constraint to design around
