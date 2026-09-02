@@ -289,6 +289,17 @@ jobs:
     # It previously did, and then ran `west init` in the same directory, which is
     # what broke it.
     runs-on: ubuntu-24.04
+    env:
+      # Undo the workflow-level `-D warnings`. It is right for our own crates and
+      # wrong here: this job compiles UPSTREAM MCUboot's simulator, and denying
+      # warnings in code we do not own means any deprecation upstream picks up
+      # fails our CI. It already did -- two `rand` deprecations in
+      # sim/src/image.rs turned into hard errors and took the job down, while the
+      # same build passes locally where RUSTFLAGS is unset.
+      RUSTFLAGS: ""
+      # Plain output: this job's failures are reported through ::error::
+      # annotations, and ANSI colour codes make those unreadable.
+      CARGO_TERM_COLOR: never
     steps:
       - name: Install Rust
         run: |
@@ -352,6 +363,7 @@ jobs:
         working-directory: bootloader/mcuboot/sim
         run: |
           rustc --version; cargo --version
+          echo "RUSTFLAGS=[${RUSTFLAGS-unset}]"
           cc --version | head -1
           python3 --version
           echo "--- submodule state the simulator links:"
@@ -373,7 +385,8 @@ jobs:
             # exit code already said. GitHub keeps 10 error annotations per step,
             # so this is the header plus nine lines.
             { grep -vE "^[[:space:]]*(Compiling|Downloading|Downloaded|Updating|Fresh|Adding|Locking|Installing|Checking) " \
-                /tmp/sim-build.log | tail -9 \
+                /tmp/sim-build.log \
+                | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -9 \
                 | while IFS= read -r l; do echo "::error::${l:0:400}"; done; } || true
             exit 1
           fi
@@ -392,6 +405,7 @@ jobs:
             echo "::error::mcuboot swap/revert tests failed"
             { { grep -E "panicked|FAILED|^failures:|assertion" /tmp/sim-test.log || \
                 grep -vE "^[[:space:]]*(Compiling|Downloading|Fresh) " /tmp/sim-test.log; } \
+                | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' \
                 | tail -9 | while IFS= read -r l; do echo "::error::${l:0:400}"; done; } || true
             exit 1
           fi
