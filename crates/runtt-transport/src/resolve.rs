@@ -205,15 +205,25 @@ fn resolve_usb_serial(serial: &str) -> Result<Resolved> {
         .collect();
 
     if matching.is_empty() {
+        // Only runtt boards. Listing every tty serial swept in the Debug
+        // Probe's own CDC UART, so a message that goes on to say "a board only
+        // publishes one once it has an identity record" was offering a CMSIS-DAP
+        // probe as a candidate target -- read by someone who has just mistyped a
+        // serial and is looking for the right one.
+        //
         // Dedupe: a composite board contributes one candidate per CDC
         // interface, and listing the same serial twice reads like two boards.
-        let mut seen: Vec<String> = candidates.iter().filter_map(|c| c.serial.clone()).collect();
+        let mut seen: Vec<String> = candidates
+            .iter()
+            .filter(|c| c.interface.as_deref() == Some(IFACE_MGMT))
+            .filter_map(|c| c.serial.clone())
+            .collect();
         seen.sort();
         seen.dedup();
         bail!(
-            "no board with serial {serial:?} is attached. Serials currently present: {}. \
-             A board only publishes one once it has an identity record -- write one with \
-             scripts/make-identity.py.",
+            "no board with serial {serial:?} is attached. runtt boards currently \
+             attached: {}. A board only publishes a serial once it has an identity \
+             record -- write one with scripts/make-identity.py.",
             if seen.is_empty() {
                 "none".to_string()
             } else {
