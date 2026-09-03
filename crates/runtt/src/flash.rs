@@ -15,18 +15,35 @@
 //! requires the very capability that was lost — so contract loss is never
 //! remotely permanent.
 //!
-//! With one caveat that matters, and that this comment used to gloss over by
-//! saying "MCUboot reverts on the next reset by itself". It does — but NOTHING
-//! SCHEDULES THAT RESET. Observed on a Pico 2 W: an image that boots and runs
-//! but cannot answer SMP was swapped in, could not be confirmed, and the board
-//! then ran it indefinitely. The revert was correct when it came, and it came
-//! only because an operator reset the board.
+//! With one caveat, and it is smaller than it was. MCUboot reverts an
+//! unconfirmed image AT BOOT, and nothing on the host schedules that boot.
+//! Observed on a Pico 2 W: an image that boots and runs but cannot answer SMP
+//! was swapped in, could not be confirmed, and the board then ran it for 14
+//! minutes with no sign of stopping. The revert was correct when it came, and
+//! it came only because an operator reset the board.
 //!
-//! The container exiting non-zero does not close this. The restart policy fires,
-//! this runtime comes back, and it cannot upload anything — the board is
-//! unmanageable, which is the whole problem. Recovery needs a reboot from the
-//! device side: see §6 of docs/ROADMAP.md for the confirm-deadline design and
-//! the reason it is parked rather than guessed at.
+//! Nothing on this side can close that. The container exiting non-zero does not
+//! help — the restart policy fires, this runtime comes back, and it cannot
+//! upload anything, because the board is unmanageable, which is the whole
+//! problem. Recovery has to come from the device.
+//!
+//! It now does, for firmware that carries the module: runtt-zephyr-module's
+//! CONFIG_RUNTT_CONFIRM_DEADLINE (60 s by default) reboots a board that has not
+//! been confirmed by its deadline, and MCUboot reverts on that boot. Measured
+//! on a Pico 2 W: manageable again 75 s after the deploy started, against 14
+//! minutes and an SWD reset before it existed.
+//!
+//! TWO CASES IT STILL DOES NOT COVER, so do not read the above as "recovery is
+//! automatic" without qualification:
+//!
+//!   * firmware that faults before the module initialises, or that does not
+//!     include the module at all. Zephyr's default fatal handler HALTS rather
+//!     than rebooting (arch_system_halt, kernel/fatal.c), so such an image
+//!     never reverts either. That needs a hardware watchdog — §6 of
+//!     docs/ROADMAP.md, deliberately still open.
+//!   * a board whose primary slot was flashed unconfirmed with nothing staged
+//!     in the secondary. The deadline declines to arm there on purpose, since
+//!     there is nothing to revert to and rebooting would loop.
 
 use anyhow::{bail, Context, Result};
 use runtt_smp::can::IsoTpTransport;

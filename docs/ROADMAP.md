@@ -1,25 +1,40 @@
 # Roadmap
 
-Where this is, and what is worth doing next. Written 2026-08-30, after both the
-Pico and the Feather were proven end to end.
+Where this is, and what is worth doing next. Written 2026-08-30 after the Pico
+and the Feather were proven end to end; revised 2026-09-03 after the split, CI
+and the confirm deadline.
 
 ## Where we are
 
-Two boards, two architectures, one runtime and one contract. On each of a
-Raspberry Pi Pico (RP2040, Cortex-M0+) and an Adafruit Feather nRF52840
-(Cortex-M4), `docker run --runtime=runtt` uploads firmware over USB,
-MCUboot swaps and confirms it, the new image boots, and its logs reach container
-stdio. Digests verified independently against imgtool in both cases.
+Three boards, three SoC families, one runtime and one contract. On each of a
+Raspberry Pi Pico (RP2040, Cortex-M0+), a Raspberry Pi Pico 2 W (RP2350,
+Cortex-M33) and an Adafruit Feather nRF52840 (Cortex-M4),
+`docker run --runtime=runtt` uploads firmware over USB, MCUboot swaps and
+confirms it, the new image boots, and its logs reach container stdio. Digests
+verified independently against imgtool in every case.
 
-That two different architectures pass the same contract is the part that makes
-the contract credible rather than shaped around one board.
+That three different architectures pass the same contract is the part that makes
+the contract credible rather than shaped around one board. The Pico 2 W is the
+strongest evidence of that: it needed no new snippet files at all.
 
-**Not yet done:** no git remote, so CI has never run anywhere; revert is
-untested on hardware; and the upstream MCUboot report is drafted but unfiled.
+**Done since this was written:** the four repositories exist and every one has
+CI that runs and is green — so "it works" no longer means "it works on one
+laptop". `runtt` v0.1.1 and `runtt-boards` v0.2.0 publish release artefacts.
+Revert is proven on hardware, and the reboot that it needs is now scheduled by
+the device itself (§6).
+
+**Not yet done:** the upstream MCUboot report is drafted but unfiled, the
+`mcumgr-toolkit` fork is still in place so crates.io is closed, and no trust
+root is enrolled (§5).
 
 ---
 
-## 0. Push to a remote, and get CI green
+## 0. Push to a remote, and get CI green — DONE
+
+**Done 2026-09-02.** All four repositories are on GitHub and all four have CI
+that runs and is green. Kept here because the reasoning is what the outcome
+vindicated: every artefact named below turned out to be broken, and CI is what
+found it. Three CI faults surfaced on the runtime's first real run alone.
 
 **Before anything else, and it is not a formality.** Three separate artefacts in
 this repo turned out never to have been executed: `ci.yml` (two independent
@@ -203,7 +218,15 @@ mechanism here and should stay even after the patch is filed. Still pending befo
 filing: a regression test in MCUboot's own simulator, noted in
 [MCUBOOT_SWAP_BUG.md](MCUBOOT_SWAP_BUG.md).
 
-### Phase B — the split
+### Phase B — the split — DONE
+
+**Done 2026-09-02**, in the order below and with history preserved. The one
+prediction that did not survive contact is worth recording: this plan had
+`runtt-boards` publishing `native_sim` fixtures as release assets for `runtt`'s
+CI to download against a pinned tag, and named the resulting two-repo dance as
+"the real price of splitting". `runtt` builds the fixtures itself from
+`runtt-boards`' manifest instead, so that price was never paid.
+
 
 Four repos, listed in the order to extract them — fewest inbound dependencies
 first, so each extraction can be proven before the next.
@@ -256,7 +279,13 @@ that the document, the runtime's accepted major and the mock agree.
 contract version it pins. Both are cheap, and together they cover what the single
 test covers today.
 
-### Phase C — CI, per repo
+### Phase C — CI, per repo — DONE
+
+**Done 2026-09-02.** Every repository below has the jobs described, and the
+tag-gated release paths have both been exercised: `runtt` v0.1.1 publishes three
+static binaries plus `SHA256SUMS`, and `runtt-boards` v0.2.0 publishes
+provisioning images for all three boards.
+
 
 | Repo | Jobs |
 |---|---|
@@ -392,7 +421,7 @@ safety-relevant needs its own staleness check.
 | Item | State |
 |---|---|
 | MCUboot `find_last_idx` unbounded loop | patch written and carried via `west patch`; simulator green on both swap modes; **needs a regression test, then filing** |
-| Revert on hardware | **proven on a Pico 2 W, 2026-09-02** — a deliberately unmanageable image failed to confirm and MCUboot reverted. But see §6: the revert needed a reboot that nothing schedules |
+| Revert on hardware | **proven on a Pico 2 W** twice, and the reboot it needs is now scheduled on-device by `CONFIG_RUNTT_CONFIRM_DEADLINE` — 2026-09-03, tested in both directions. §6. Layers 2 and 3 remain open, so an image that faults before the module starts still does not revert |
 | Hardware CI gate | designed in `docs/HARDWARE_GATE.md`, deliberately not built |
 | Signing key | still MCUboot's published development key; no trust root is enrolled |
 | Feather recovery | SWD-only now; the backup in `feather-backup/` is verified by checksum but **the restore has never been exercised** |
@@ -404,115 +433,169 @@ build-time one.
 
 ---
 
-## 6. Revert needs a reboot, and nothing schedules it
+## 6. Revert needs a reboot — Layer 1 has landed
 
-**Parked deliberately, 2026-09-02.** The gap is understood and recorded rather
-than fixed, because the fix changes device behaviour on every board and the
-default wants a decision, not a guess.
+**Layer 1 done and measured on hardware, 2026-09-03. Layers 2 and 3 still
+open.** The decision this section used to leave open has been made: the deadline
+defaults **on**, at **60 seconds**, tunable.
 
-### What actually happens
+### What was actually happening
 
 `crates/runtt/src/flash.rs` states the safety property, and the last line of it
-is the problem:
+was the problem: an unconfirmed image reverts on the next reset, and **nothing
+scheduled that reset**.
 
-> If we never send the confirm, MCUboot reverts on the next reset by itself.
+Reproduced twice on a Pico 2 W, the second time deliberately to rule out a
+fluke. An image built with `CONFIG_MCUMGR_TRANSPORT_UART=n` boots and runs
+perfectly well — USB enumerates, both contract channels register, the
+application ticks — it simply cannot be talked to, so the host can never
+confirm it:
 
-True about what MCUboot does **at boot**. But nothing in the system schedules
-that boot. Observed end to end on a Pico 2 W:
+```
+uptime 00:14:28, tick 434, boot banners: 1, SMP: silent throughout
+```
 
-1. an image with `CONFIG_MCUMGR_TRANSPORT_UART=n` was uploaded and marked test —
-   it boots and runs perfectly well, it simply cannot be talked to
-2. MCUboot swapped it in and booted it as a test image
-3. the host could not confirm it, and said so
-4. **the board went on running the unmanageable image indefinitely**
-5. only an operator-issued reset made MCUboot revert, at which point it did so
-   correctly and the previous image came back confirmed
+Fourteen minutes, no self-recovery, and it reverted correctly the instant it was
+reset over SWD. So the property held — eventually, and only because a human
+intervened.
 
-So the property holds — eventually, and only if somebody resets the board. The
-container exiting non-zero and the restart policy firing does not help: the
-runtime comes back up and cannot upload anything, because the board is
-unmanageable. That is the loop nothing breaks.
+The container exiting non-zero does not close this. The restart policy fires,
+the runtime comes back, and it cannot upload anything, because the board is
+unmanageable — which is the whole problem.
 
-The crash case has the same shape and is worth stating separately, because it is
-easy to assume otherwise: Zephyr's default fatal handler **halts**
-(`arch_system_halt`, `kernel/fatal.c`), it does not reboot. An image that hard
-faults therefore also never reverts.
+### This is not a gap peculiar to us
 
-### The fix, in three layers
+Worth writing down, because it shapes the fix.
 
-**Layer 1 — a confirm deadline in the runtt module.** At boot, if
-`boot_is_img_confirmed()` is false, arm delayed work for N seconds; at the
-deadline, re-check and `sys_reboot()` if still unconfirmed. MCUboot reverts on
-that boot. Everything needed already exists — `boot_is_img_confirmed()` and
-`mcuboot_swap_type()` are in `zephyr/dfu/mcuboot.h`, and
-`CONFIG_MCUBOOT_IMG_MANAGER=y` is already set on every MCUboot target we build.
-Roughly 40 lines in `src/health.c`.
+**MCUboot puts the scheduling out of scope, explicitly.** Its
+[design document](https://docs.mcuboot.com/design.html) says a revert happens
+"during the next boot" and that "the new image can then update the contents of
+flash at runtime to mark itself OK". It describes only the decision made at
+startup from the trailer flags. No watchdog, no deadline, no mention of what
+causes that boot.
 
-This closes the observed case: firmware that runs but cannot be confirmed.
+**Zephyr's own OTA clients hit the same wall and stop there.** In our pinned
+v4.4.2: hawkbit logs `"Current image is not confirmed"` and terminates with
+`HAWKBIT_UNCONFIRMED_IMAGE` (`subsys/mgmt/hawkbit/hawkbit.c`); updatehub returns
+`-EIO`. Neither reboots. hawkbit also offers
+`CONFIG_HAWKBIT_CONFIRM_IMG_ON_INIT`, which confirms at init — that is the
+anti-pattern, since it makes every image permanent before anything is proven.
+Zephyr assigns the duty in its own Kconfig help for MCUmgr's image group:
+"instead application should have a means to test and confirm the image."
 
-> **The footgun, and it points the wrong way.** A deadline shorter than the
-> host's realistic confirm time reverts *good* firmware — it would turn the
-> safety property into a liability. Measured confirm latency is ~2 s, but a
-> loaded host or a slow container start is unbounded in practice, so the default
-> wants to be generous (~2 minutes) and Kconfig-tunable. Any implementation must
-> be tested in BOTH directions on hardware: a broken image self-reverts, **and a
-> good image survives the deadline untouched.** The second test is the one that
-> matters, and the one that is easy not to write.
+**The documented idiom does not fit us, and that is the interesting part.** The
+standard pattern is a *local* self-test: boot, check yourself, then either
+`boot_write_img_confirmed()` or `sys_reboot()`. That works when the verdict is
+local. runtt's verdict is **remote by design** — confirmation travels over the
+very contract being tested, which is exactly what makes contract loss
+unrecoverable-proof. No self-test can produce it: the firmware cannot know it is
+broken, only that nobody has confirmed it. Hence a deadline rather than a
+self-test.
 
-**Layer 2 — a hardware watchdog.** Layer 1 cannot help firmware that faults
-before the module initialises, or firmware that does not include the module at
-all. A WDT armed early and fed only while the contract is up covers both, and it
-is what makes this property hold for *arbitrary* firmware rather than only ours.
-RP2350 has `wdt0` (`raspberrypi,pico-watchdog`, driver `wdt_rpi_pico.c`) and the
-nRF52840 has one too.
+### Layer 1 — the confirm deadline (done)
 
-Note what does **not** do this: MCUboot's `CONFIG_BOOT_WATCHDOG_FEED` only feeds
-a watchdog *while doing the swap* (`bootloader/mcuboot/boot/zephyr/Kconfig`). It
-does not arm one for the application, so this is separate per-SoC work.
+`runtt-zephyr-module`, `src/confirm.c`, `CONFIG_RUNTT_CONFIRM_DEADLINE`. At boot,
+if the running image is unconfirmed it arms delayed work; at the deadline it
+re-checks and `sys_reboot(SYS_REBOOT_COLD)`s if still unconfirmed. MCUboot
+reverts on that boot.
 
-**Layer 3 — host-side tidy-up.** On the next deploy, if the device answers SMP
-with an unconfirmed image pending, reset it rather than proceeding. Cheap, but it
-only helps cases that were already recoverable.
+**Default on**, and the cost this section previously ascribed to that was
+overstated. It is not "a reboot timer on every board": the deadline is armed
+only while the running image is unconfirmed, which is only the window between a
+fresh deploy and its confirmation. A board on settled firmware arms nothing.
 
-### The open decision
+**Default 60 s.** The footgun points the opposite way to intuition — too
+**short** reverts **good** firmware. Measured confirm latency is ~2 s, but it is
+bounded by the host rather than the device, and a loaded machine or slow
+container start is unbounded in practice. 60 s is ~30x the measurement.
 
-Layer 1 defaulting **on** changes device behaviour for the Feather and Pico 1 as
-well, and it is a self-reboot path, so the default is a product decision rather
-than an implementation one:
+Two guards, both load-bearing:
 
-* **default on** — the safety property actually holds everywhere, at the cost of
-  a reboot timer on every board;
-* **default off, boards opt in** — no behaviour change, but the property stays
-  unenforced by default, which rather undercuts the point.
+* **Arms only when `mcuboot_swap_type() == BOOT_SWAP_TYPE_REVERT`** — only when
+  a reboot would actually revert something. Without this it is a bootloop
+  generator: an image flashed straight into the primary slot without
+  `--confirm` boots unconfirmed too, but with an empty secondary there is
+  nothing to revert to, so it would reboot into itself forever. Declining to
+  arm leaves that board running and manageable, which is strictly better.
+* **Off on `ARCH_POSIX`.** `MCUBOOT_IMG_MANAGER` is set on native_sim as well,
+  because `RUNTT_SIM_SLOT_SHIM` makes `img_mgmt` buildable there — so without
+  this the deadline ships inside the native_sim fixture this repository's e2e
+  gates consume, where there is no MCUboot to revert to and `sys_reboot()`
+  re-execs the process. Its only possible effect there is restarting the
+  simulator underneath a running gate. Found by reading the generated
+  `.config`; the assumption going in was that native_sim would not have the
+  symbol.
 
-Until this lands, `flash.rs`'s module comment has been corrected so it no longer
-reads as though recovery were automatic.
+It lives in its own file and its own Kconfig symbol rather than in `health.c`,
+as this section used to suggest: `RUNTT_HEALTH` defaults `n`, so that placement
+would have shipped the feature disabled.
 
----
+**Tested in both directions on a Pico 2 W**, which was the requirement this
+section set and the second half of which is the part that is easy not to write:
+
+| | broken image | good image |
+|---|---|---|
+| boot banners | 2 — self-rebooted | **1** — never rebooted |
+| deadline fired | yes, ~60 s | **no** |
+| outcome | reverted; manageable **75 s** after deploy start | ran to 2:30 uptime, ticks unbroken through the 60 s mark |
+| final slot 0 | previous image, confirmed | new image, confirmed |
+
+Against 14 minutes and an operator with a debug probe, before it existed.
+
+### Layer 2 — a hardware watchdog (open)
+
+Layer 1 cannot help firmware that faults before the module initialises, or
+firmware that does not include the module at all. A WDT armed early and fed only
+while the contract is up covers both, and it is what makes this property hold
+for *arbitrary* firmware rather than only ours. RP2350 has `wdt0`
+(`raspberrypi,pico-watchdog`, driver `wdt_rpi_pico.c`) and the nRF52840 has one
+too.
+
+The crash case is worth restating, because it is easy to assume otherwise:
+Zephyr's default fatal handler **halts** (`arch_system_halt`, `kernel/fatal.c`),
+it does not reboot. An image that hard faults therefore does not revert either,
+and Layer 1 does not change that.
+
+Note what does **not** do this: MCUboot's `CONFIG_BOOT_WATCHDOG_FEED` is
+literally "Feed the watchdog while doing swap" — verified in
+`bootloader/mcuboot/boot/zephyr/Kconfig`. It feeds an already-running watchdog
+during long operations and does not arm one for the application, so this is
+separate per-SoC work.
+
+Zephyr does ship a building block: `subsys/task_wdt`, a task-level software
+watchdog that `select`s `REBOOT`.
+
+### Layer 3 — host-side tidy-up (open)
+
+On the next deploy, if the device answers SMP with an unconfirmed image pending,
+reset it rather than proceeding. Cheap, but it only helps cases that were
+already recoverable, so it is the lowest-value of the three.
+
 
 ## Suggested order
 
-Revised, and two items are struck because they are done: CAN over `vcan` works
-and gates locally, and the CAN transport landed in `runtt-transport`.
+Revised 2026-09-03. Struck because they are done: CAN over `vcan` and the CAN
+transport in `runtt-transport`; the fork swap and deleting `third_party/`; the
+four-repo split; CI per repo; and the confirm deadline (§6, Layer 1).
 
-1. **Submit both upstream patches** — `mcumgr-toolkit` by fork, MCUboot by
-   `west patch`. Doing this first means the split does not have to carry a
-   vendored tree into a new repo.
-2. **Point this repo at the `mcumgr-toolkit` fork** and delete `third_party/`.
-3. **Split, one repo at a time**, `runtt` first — with the monorepo's gates kept
-   green until each new repo's replacement is green.
-4. **CI per repo**, including the cross-compiled release matrix and the
-   `native_sim` fixture publishing that the runtime's gates depend on.
-5. **ESP32-S3** — cheap, proves the contract is not Pico-shaped, and the board is
-   on order along with the two CAN boards.
-6. **CAN on physical hardware** — two different controllers, which is what makes
+1. **File the MCUboot patch** — the regression test injecting a corrupt trailer
+   comes first, then the issue, then its URL into `patches.yml` as `issue:`.
+   `mcumgr-toolkit` is with review; dropping that fork is the prerequisite for
+   any crates.io release.
+2. **Layer 2, the hardware watchdog** (§6) — what makes the safety property
+   hold for firmware that is not ours, rather than only for firmware carrying
+   the module.
+3. **Exercise the Feather restore** (§5). The backup is verified by checksum and
+   the restore has never been run, which means it is not yet a backup.
+4. **ESP32-S3** — cheap, proves the contract is not Pico-shaped, and the board
+   is on order along with the two CAN boards.
+5. **CAN on physical hardware** — two different controllers, which is what makes
    the ISO-TP layer proven rather than merely intended.
-7. **Robotics demo** — most visible, and benefits from the split being done.
+6. **Robotics demo** — most visible, and benefits from the split being done.
 
-Note what moved: "remote + CI green" is no longer first on its own, because the
-split changes what CI should even be. Getting a remote is still the single
-highest-leverage act — nothing here has ever executed anywhere but one laptop —
-but it now belongs *with* the split rather than before it.
+Note what moved off the list entirely: "get a remote and make CI green" was the
+single highest-leverage act for months, on the grounds that nothing here had
+executed anywhere but one laptop. That is now true of nothing.
 
 ---
 
