@@ -190,7 +190,7 @@ podman save mcu-fw:pico | tar -t | head
 >   root — ours is nested, so without this the module and its snippet simply are
 >   not there. Both build scripts carry the same line.
 > * `-Dapp_SNIPPET=` rather than `-S`. Under sysbuild a top-level snippet
->   applies to **every** image, including MCUboot. See `docs/FIRMWARE_GUIDE.md`.
+>   applies to **every** image, including MCUboot. See [`FIRMWARE_GUIDE.md`](https://github.com/shaunmulligan/runtt-zephyr-module/blob/main/docs/FIRMWARE_GUIDE.md).
 
 **Expect the builder image to be slow the first time** — the Zephyr CI base is
 tens of gigabytes, and it then fetches Zephyr and its modules. That cost is paid
@@ -198,7 +198,7 @@ once; application builds afterwards are quick. For iterating on firmware,
 `scripts/build-pico.sh` against a local west workspace is quicker still; the
 Docker path is for producing the artefact you actually ship.
 
-See `docs/WALKTHROUGH.md` for this build path end to end on hardware.
+See [`WALKTHROUGH.md`](https://github.com/shaunmulligan/runtt-examples/blob/main/docs/WALKTHROUGH.md) for this build path end to end on hardware.
 
 ---
 

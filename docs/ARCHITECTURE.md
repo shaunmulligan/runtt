@@ -113,12 +113,30 @@ set_state(CONFIRM)  only now
 
 **Confirmation is reachable only through the contract.** An image that removed or
 broke the contract can never be confirmed, because confirming requires the very
-capability that was lost. If the confirm never arrives, MCUboot reverts on the
-next reset.
+capability that was lost. That half genuinely is by construction, and everything
+else is arranged to preserve it.
 
-So a bad update is self-healing by construction, not by a timer or a watchdog we
-have to get right. This is the single most important property in the design, and
-everything else is arranged to preserve it.
+**The other half is a timer, and this document used to deny it.** It said "a bad
+update is self-healing by construction, not by a timer or a watchdog we have to
+get right". That was wrong, and the way it was wrong is worth keeping: MCUboot
+reverts an unconfirmed image at the next boot, and *nothing in the design caused
+that boot*. Measured on a Pico 2 W, an unconfirmed image that boots but cannot
+answer SMP ran for fourteen minutes and reverted only when an operator reset the
+board. The sentence read as a guarantee and was really an assumption.
+
+The gap is closed on the device, by exactly the mechanism that sentence
+disclaimed: `CONFIG_RUNTT_CONFIRM_DEADLINE` in
+[runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module)
+reboots a board that has not been confirmed within its deadline, 60 s by
+default. So it is a timer we have to get right, and the direction that gets it
+wrong is a deadline shorter than the host's confirm latency, which would revert
+good firmware.
+
+Two cases still are not covered, and a hardware watchdog is what would cover
+them: firmware that faults before that module initialises (Zephyr's default
+fatal handler halts rather than reboots), and firmware that does not carry the
+module at all. See §6 of
+[ROADMAP.md](https://github.com/shaunmulligan/runtt/blob/main/docs/ROADMAP.md).
 
 ## Placement
 

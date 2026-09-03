@@ -177,7 +177,7 @@ Two things cost real time here and are worth carrying forward:
 with an SN65HVD230 we already have) and an Adafruit RP2040 CAN Feather (MCP25625,
 controller and transceiver onboard). Deliberately two *different* controllers, so
 the ISO-TP layer is proven controller-agnostic rather than merely intended to be.
-See [HARDWARE_TARGETS.md](HARDWARE_TARGETS.md) for what each needs before it boots.
+See [HARDWARE_TARGETS.md](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/HARDWARE_TARGETS.md) for what each needs before it boots.
 
 **Sequencing:** the transport crate is where this lands, so the repo split
 clarifies its boundary -- but it did not need to wait, and a `vcan` gate in CI is
@@ -216,7 +216,7 @@ re-applied against a known upstream revision. A fork would be an entire vendor
 tree to keep rebased for the sake of a few lines. `west patch` is the better
 mechanism here and should stay even after the patch is filed. Still pending before
 filing: a regression test in MCUboot's own simulator, noted in
-[MCUBOOT_SWAP_BUG.md](MCUBOOT_SWAP_BUG.md).
+[MCUBOOT_SWAP_BUG.md](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/MCUBOOT_SWAP_BUG.md).
 
 ### Phase B — the split — DONE
 

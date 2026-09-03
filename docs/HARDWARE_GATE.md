@@ -220,7 +220,7 @@ inside a bootrom flash routine run with XIP disabled and return garbage, which
 produced one confidently wrong conclusion about corrupted flash.
 
 The genuine upstream finding that survived is unrelated to the deploy path: see
-`docs/MCUBOOT_SWAP_BUG.md`.
+[`MCUBOOT_SWAP_BUG.md`](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/MCUBOOT_SWAP_BUG.md).
 
 ## Staging
 
