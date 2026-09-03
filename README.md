@@ -86,7 +86,16 @@ image stores.
 Boards need provisioning once before any of this: see
 [runtt-boards](https://github.com/shaunmulligan/runtt-boards).
 
-## Trying it, with no hardware
+## Trying it, with no hardware — from source
+
+**This path needs a checkout and a Rust toolchain**, so it is aimed at anyone
+working *on* runtt rather than deploying with it. The installed binaries above
+are the deploy path; `runtt-mock` is a development tool and is deliberately not
+published as a release asset.
+
+`runtt-mock` stands up a fake board on a pty: it speaks the whole wire contract
+and can inject faults, so every path through the runtime — including the error
+paths — can be exercised with nothing plugged in.
 
 ```bash
 cargo build
@@ -94,8 +103,10 @@ cargo build
 # Stand up a mock device on a pty.
 ./target/debug/runtt-mock --symlink /tmp/mcu-tty &
 
-# Build a firmware image.
-mkdir -p /tmp/fw && head -c 8192 /dev/urandom > /tmp/fw/app.signed.bin
+# Build a firmware image. Use a real imgtool-signed image, not random bytes:
+# the runtime parses the MCUboot header and TLV digest to establish image
+# identity, so anything else is rejected with "not an MCUboot image".
+mkdir -p /tmp/fw && cp crates/runtt-smp/tests/fixtures/app.signed.bin /tmp/fw/
 printf 'FROM scratch\nADD app.signed.bin /\nENTRYPOINT ["app.signed.bin"]\n' > /tmp/fw/Dockerfile
 podman build -t mcu-fw:demo /tmp/fw
 
@@ -104,6 +115,10 @@ podman --runtime="$PWD/target/debug/runtt" run --rm \
   --annotation dev.runtt.target="tty:$(readlink -f /tmp/mcu-tty)" \
   mcu-fw:demo
 ```
+
+The runtime stays **resident** after the deploy, streaming the device's logs to
+container stdio for as long as the firmware runs — so that last command does not
+return on its own. Ctrl-C it, or wrap it in `timeout 60` as CI does.
 
 For Docker, register the runtime once (`sudo scripts/register-docker.sh`), then
 `docker run --runtime runtt --network none ...`. A firmware service needs no

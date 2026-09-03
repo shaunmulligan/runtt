@@ -516,7 +516,21 @@ jobs:
             fi
 
             echo "  $b: static, $machine, $(stat -c %s "$p") bytes"
-            cp "$p" "dist/$b-${{ matrix.arch }}"
+
+            # Both binaries are BUILT and checked here -- the mock's cross-build
+            # is worth gating, and the podman smoke test in `test` uses it -- but
+            # only the runtime is published. runtt-mock is useful only to someone
+            # who already has a checkout: every doc that drives it (the README's
+            # no-hardware section, MANUAL_VERIFICATION.md, MANUAL_LOG_DEMUX.md)
+            # invokes ./target/debug/runtt-mock. Attaching it put three assets on
+            # the release page that nothing there explained.
+            # NOT `[ "$b" = runtt ] && cp ...`: this loop is the last statement
+            # in the step, so the step's exit status is the last command's, and
+            # a false test on the runtt-mock iteration fails the whole job under
+            # `set -e`. Verified -- it exits 1.
+            if [ "$b" = runtt ]; then
+              cp "$p" "dist/$b-${{ matrix.arch }}"
+            fi
           done
 
       - uses: actions/upload-artifact@v4
@@ -581,10 +595,6 @@ jobs:
           For Docker the runtime has to be registered with the daemon first --
           \`scripts/register-docker.sh\` in this repository -- after which
           \`--runtime=runtt\` resolves by name.
-
-          \`runtt-mock-*\` is also attached: it speaks the wire contract over a pty,
-          so the whole deploy path can be exercised with no board attached. See the
-          README.
 
           Verify what you downloaded against \`SHA256SUMS\`.
 
