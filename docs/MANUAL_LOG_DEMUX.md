@@ -20,7 +20,8 @@ Three routes below, cheapest first. Each is self-contained.
 > repository, checked out by west at `modules/runtt`. The commands are left as
 > they were run rather than retyped untested; `-DZEPHYR_EXTRA_MODULES` in
 > particular is no longer needed at all, because west now registers the module
-> from the manifest. See `scripts/build-feather.sh` for the current invocation.
+> from the manifest. See `runtt-boards`' `scripts/build-feather.sh` (or
+> `build-pico.sh` / `build-pico2w.sh`) for the current invocation.
 
 ---
 
@@ -154,13 +155,14 @@ The build environment comes from a **builder image**, built once, which is what
 lets an application directory be self-contained:
 
 ```bash
-docker build -f firmware/builder/Dockerfile -t runtt-builder:v4.4.2 firmware/
+# builder/ lives in runtt-boards; run this from a checkout of it
+podman build -f builder/Dockerfile -t runtt-builder:v4.4.2 .
 ```
 
 Then build the application from inside its own directory:
 
 ```bash
-cd firmware/examples/app1
+cd app1        # in runtt-examples
 podman build --build-arg BOARD=rpi_pico/rp2040/mcuboot -t mcu-fw:pico .
 ```
 
@@ -202,7 +204,7 @@ See `docs/WALKTHROUGH.md` for this build path end to end on hardware.
 
 ## 4. On hardware
 
-Both boards we ship are **two-channel**, so they take the plain path and the
+All three boards we ship are **two-channel**, so they take the plain path and the
 demux is not involved. To exercise it on real hardware, address the management
 channel directly with a `tty:` target, which makes the host treat it as
 single-channel:

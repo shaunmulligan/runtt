@@ -49,12 +49,14 @@ capture; same-digest no-op redeploy.
 - **A fleet trust root.** Everything is signed with MCUboot's *published*
   development key. Fine on a bench, unfit for anything else — see the
   signing-key warning in [runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module).
-- **Revert on real hardware.** Exercised in MCUboot's own simulator, not yet on a
-  board.
-
-> **On CI:** `.github/workflows/ci.yml` is a well-formed file, not a running
-> system. This repo has no git remote, so it has never executed anywhere. The
-> suites it runs do pass locally.
+- **A hardware CI gate.** Every job is simulated; nothing runs against a board
+  automatically. Designed in [docs/HARDWARE_GATE.md](docs/HARDWARE_GATE.md),
+  deliberately not built.
+- **Recovery from firmware that faults before the runtt module starts.** The
+  confirm deadline covers firmware that boots but cannot be reached; an image
+  that hard faults first does not reboot at all, because Zephyr's default fatal
+  handler halts. That needs a hardware watchdog — §6 of
+  [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 

@@ -20,11 +20,13 @@ Pico on the bench; where something is inferred rather than run, it says so.
 That is a lot of the risk surface, and none of it needs a board. The gap is
 genuinely narrow — but it is not empty.
 
-> **Note:** as of this writing the repo has **no git remote and no tags**, so
-> `ci.yml` has never actually executed anywhere. It is a well-formed file, not a
-> running system. Any plan that starts "add a hardware job to CI" is really a
-> three-step plan: push to a remote, get the three headless jobs green on hosted
-> runners, and only then attach a runner to a desk machine.
+> **Note:** this used to warn that `ci.yml` had never executed anywhere, and
+> that a hardware job was really a three-step plan — push to a remote, get the
+> headless jobs green, then attach a runner to a desk machine. The first two
+> steps are done: CI runs on every push and is green, and tagged releases
+> publish. So what remains here really is just the last step, and the argument
+> below for not taking it stands on its own merits rather than on CI being
+> unproven.
 
 ## What only hardware can prove
 
@@ -74,9 +76,12 @@ gate exists to prove becomes unfalsifiable while the log reads reassuringly.
 run.** Use the imgtool block the sim gates already have
 (`scripts/native-sim-e2e.sh:34-44`), changing only `--slot-size` to `0xd0000`
 for RP2040 — *not* native_sim's `0x69000`, and *not* the Feather's `0x76000`.
-(Read the value off `slot0_partition` in the generated `app/zephyr/zephyr.dts` of
-a build tree; `scripts/build-pico.sh` and `scripts/build-feather.sh` each produce
-one.) A gate covering both boards needs the slot size per target, not a constant.
+(Read the value off `slot0_partition` in the generated `app-test/zephyr/zephyr.dts`
+of a build tree; `runtt-boards`' `scripts/build-pico.sh`, `build-pico2w.sh` and
+`build-feather.sh` each produce one.) A gate covering every board needs the slot
+size per target, not a constant — though RP2040 and RP2350 happen to share
+`0xd0000`, verified in the generated devicetree rather than assumed from the
+family.
 
 The version lives in the MCUboot header, so the digest is new every run while
 the code is identical and already proven to boot. That single trick:
@@ -232,9 +237,10 @@ failure.
 **Before any unattended ambition.** A switchable USB hub is the single
 highest-leverage purchase in the project; enabling the retention/boot-mode path
 so a script can command BOOTSEL is the highest-leverage firmware change. The
-software route already exists in the vendored tree
-(`zephyr/soc/raspberrypi/rpi_pico/common/rom_bootloader.c`), it is simply not
-enabled.
+software route already exists in Zephyr itself
+(`zephyr/soc/raspberrypi/rpi_pico/common/rom_bootloader.c`, in a workspace
+assembled from runtt-boards' manifest — there is no vendored tree here any
+more), it is simply not enabled.
 
 ## ⚠️ If this ever becomes a CI job
 

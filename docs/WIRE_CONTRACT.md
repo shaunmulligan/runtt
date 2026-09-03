@@ -249,8 +249,20 @@ set_state(CONFIRM)   only now
 
 **Confirmation is reachable only through the contract.** An image that removed or
 broke the contract can never be confirmed, because confirming requires the very
-capability that was lost. If the confirm never arrives, MCUboot reverts on the
-next reset. Contract loss is therefore never remotely permanent, by construction.
+capability that was lost.
+
+If the confirm never arrives, MCUboot reverts — **at the next boot, and nothing
+in this sequence causes that boot.** Stating it as "reverts on the next reset"
+was how this document, and the runtime, glossed over the gap: measured on a Pico
+2 W, an unconfirmed image that boots but cannot answer SMP ran for 14 minutes
+and reverted only once an operator reset the board.
+
+The device closes it, not the host. `CONFIG_RUNTT_CONFIRM_DEADLINE` in
+runtt-zephyr-module (60 s by default) reboots a board that has not been
+confirmed by its deadline, and MCUboot reverts on that boot. So contract loss is
+not remotely permanent **for firmware carrying the module** — which is a
+property of the device half, and worth knowing is not free for firmware that
+implements this contract some other way.
 
 ### Swap mode
 

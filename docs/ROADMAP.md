@@ -59,7 +59,7 @@ already carries ESP32 quirks. So the S3 has a real USB device controller on the
 same `device_next` stack we use, and the dual-CDC contract ports directly.
 
 Board `esp32s3_devkitc`. The node ships `status = "disabled"`, so enabling it is
-the board section's job — the same shape as the other two boards.
+the board section's job — the same shape as the three boards already supported.
 
 ### ESP32-C3 — the single-channel proof
 
@@ -380,7 +380,7 @@ A two-device micro-ROS demo is therefore not a small step.
 ### What to build instead
 
 Use the **log channel as the data path**. It exists, it already streams to
-container stdio, and it works on both boards today.
+container stdio, and it works on all three boards today.
 
 ```
 Pico   ──USB──┐

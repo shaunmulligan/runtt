@@ -87,7 +87,7 @@ transport uses nothing but `uart_irq_callback_set` / `uart_irq_rx_enable` /
 
 **So a third CDC-ACM channel needs no new transport code** — only a `UART_NODE`
 pointing at the new node, plus the app-side `usbd_*` init this project already
-has in `firmware/runtt/src/usbd.c`.
+has in runtt-zephyr-module's `src/usbd.c`.
 
 The one obstacle is that `UART_NODE` is hardcoded:
 
