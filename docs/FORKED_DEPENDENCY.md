@@ -74,7 +74,7 @@ repository root.
 3. **Delete the `[patch.crates-io]` block entirely.**
 4. `cargo update -p mcumgr-toolkit`, then `cargo test --workspace` and the
    `native_sim` gates.
-5. Delete this file, and the reference to it in `README.md` and `docs/ROADMAP.md`.
+5. Delete this file, and the reference to it in `README.md` and `NOTES.md`.
 
 Nothing else in the tree depends on the fork — the pin exists solely for this one
 addition. `crates/runtt-smp/src/toolkit.rs` is the only consumer, via

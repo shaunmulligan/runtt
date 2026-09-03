@@ -53,7 +53,7 @@ sudo ip link property add dev vcan0 altname zcan0   # native_sim hardcodes this 
 
 Hardware is not required to contribute, and most of the codebase is reachable
 without it. If you do have a board, [`WALKTHROUGH.md`](https://github.com/shaunmulligan/runtt-examples/blob/main/docs/WALKTHROUGH.md) and
-`docs/MANUAL_VERIFICATION.md` are the paths to walk.
+`NOTES.md` are the paths to walk.
 
 ## Changing something on the wire
 

@@ -136,8 +136,17 @@ fn no_doc_quotes_a_stale_contract_version() {
     let dir = repo_root().join("docs");
     let mut stale = Vec::new();
 
-    for entry in std::fs::read_dir(&dir).expect("docs/ should exist") {
-        let path = entry.expect("dir entry").path();
+    // NOTES.md is included explicitly. The by-hand procedures and transcripts
+    // that this guard was written for now live there rather than under docs/,
+    // and a guard that quietly stops covering the files it was aimed at is
+    // worse than one that was never written.
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+        .expect("docs/ should exist")
+        .map(|e| e.expect("dir entry").path())
+        .collect();
+    paths.push(repo_root().join("NOTES.md"));
+
+    for path in paths {
         if path.extension().and_then(|e| e.to_str()) != Some("md") {
             continue;
         }

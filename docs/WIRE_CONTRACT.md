@@ -251,18 +251,14 @@ set_state(CONFIRM)   only now
 broke the contract can never be confirmed, because confirming requires the very
 capability that was lost.
 
-If the confirm never arrives, MCUboot reverts — **at the next boot, and nothing
-in this sequence causes that boot.** Stating it as "reverts on the next reset"
-was how this document, and the runtime, glossed over the gap: measured on a Pico
-2 W, an unconfirmed image that boots but cannot answer SMP ran for 14 minutes
-and reverted only once an operator reset the board.
+If the confirm never arrives, MCUboot reverts the image **at the next boot** —
+and nothing in the sequence above causes that boot. The device schedules it:
+`CONFIG_RUNTT_CONFIRM_DEADLINE` in runtt-zephyr-module (60 s by default) reboots
+a board that has not been confirmed by its deadline.
 
-The device closes it, not the host. `CONFIG_RUNTT_CONFIRM_DEADLINE` in
-runtt-zephyr-module (60 s by default) reboots a board that has not been
-confirmed by its deadline, and MCUboot reverts on that boot. So contract loss is
-not remotely permanent **for firmware carrying the module** — which is a
-property of the device half, and worth knowing is not free for firmware that
-implements this contract some other way.
+So contract loss is not remotely permanent **for firmware carrying that module**.
+Firmware implementing this contract some other way must schedule that reboot
+itself, or an unconfirmed image runs until something resets the board.
 
 ### Swap mode
 
@@ -437,7 +433,7 @@ the same time.** This is the one place CAN is materially simpler than USB: a
 `can0` is a *network interface*, not a character device, so any number of sockets
 may bind to it concurrently, each with its own kernel-side filters. CAN is a
 broadcast bus — every node already sees every frame and filters locally — so
-there is nothing to contend for. Contrast `docs/MICROROS.md`, which exists
+there is nothing to contend for. Contrast `NOTES.md`, which exists
 because sharing one `/dev/ttyACM*` needed a careful argument.
 
 Verified on `vcan0` with four concurrent sockets — the runtime's ISO-TP socket

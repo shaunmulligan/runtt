@@ -40,7 +40,7 @@
 //!     include the module at all. Zephyr's default fatal handler HALTS rather
 //!     than rebooting (arch_system_halt, kernel/fatal.c), so such an image
 //!     never reverts either. That needs a hardware watchdog — §6 of
-//!     docs/ROADMAP.md, deliberately still open.
+//!     NOTES.md, deliberately still open.
 //!   * a board whose primary slot was flashed unconfirmed with nothing staged
 //!     in the secondary. The deadline declines to arm there on purpose, since
 //!     there is nothing to revert to and rebooting would loop.
