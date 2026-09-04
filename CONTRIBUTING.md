@@ -52,8 +52,8 @@ sudo ip link property add dev vcan0 altname zcan0   # native_sim hardcodes this 
 ```
 
 Hardware is not required to contribute, and most of the codebase is reachable
-without it. If you do have a board, `docs/WALKTHROUGH.md` and
-`docs/MANUAL_VERIFICATION.md` are the paths to walk.
+without it. If you do have a board, [`WALKTHROUGH.md`](https://github.com/shaunmulligan/runtt-examples/blob/main/docs/WALKTHROUGH.md) and
+`NOTES.md` are the paths to walk.
 
 ## Changing something on the wire
 
@@ -69,12 +69,13 @@ them means:
    answer should be a legible failure, not a mystery.
 
 The identity record layout has two implementations —
-`firmware/runtt/include/runtt/identity.h` and `scripts/make-identity.py` — and
+`include/runtt/identity.h` and `scripts/make-identity.py` in runtt-zephyr-module — and
 they must agree. The CAN gate exercises both ends, so a mismatch fails there.
 
 ## Zephyr
 
-Zephyr is pinned exactly in `firmware/west.yml`, currently v4.4.2. Treat a bump as
+Zephyr is pinned exactly in `runtt-boards`' `west.yml`, currently v4.4.2 — the
+firmware side lives there now. Treat a bump as
 a deliberate, tested step: minor releases have already moved things underneath
 this project twice in ways that mattered. The `native_sim` gates are the upgrade
 gate.

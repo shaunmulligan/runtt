@@ -113,12 +113,20 @@ set_state(CONFIRM)  only now
 
 **Confirmation is reachable only through the contract.** An image that removed or
 broke the contract can never be confirmed, because confirming requires the very
-capability that was lost. If the confirm never arrives, MCUboot reverts on the
-next reset.
+capability that was lost. That half is by construction.
 
-So a bad update is self-healing by construction, not by a timer or a watchdog we
-have to get right. This is the single most important property in the design, and
-everything else is arranged to preserve it.
+**The other half is a timer.** MCUboot reverts an unconfirmed image at the next
+boot, and nothing in the deploy sequence causes that boot — the device does.
+`CONFIG_RUNTT_CONFIRM_DEADLINE` in
+[runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module)
+reboots a board that has not been confirmed within its deadline, 60 s by
+default, and MCUboot reverts on that boot. The deadline wants to be comfortably
+longer than the host's confirm latency: too short reverts good firmware.
+
+Two cases are not covered, and a hardware watchdog is what would cover them:
+firmware that faults before that module initialises, since Zephyr's default
+fatal handler halts rather than reboots, and firmware that does not carry the
+module at all.
 
 ## Placement
 

@@ -521,7 +521,7 @@ jobs:
             # is worth gating, and the podman smoke test in `test` uses it -- but
             # only the runtime is published. runtt-mock is useful only to someone
             # who already has a checkout: every doc that drives it (the README's
-            # no-hardware section, MANUAL_VERIFICATION.md, MANUAL_LOG_DEMUX.md)
+            # no-hardware section, and the by-hand procedures in NOTES.md)
             # invokes ./target/debug/runtt-mock. Attaching it put three assets on
             # the release page that nothing there explained.
             # NOT `[ "$b" = runtt ] && cp ...`: this loop is the last statement

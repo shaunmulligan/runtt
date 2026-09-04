@@ -3,7 +3,7 @@
 //!   cargo run -p runtt-smp --example can-ping -- vcan0 0x42
 //!
 //! The counterpart to `ping`, for the other transport. Needs the `can-isotp`
-//! kernel module and an interface that is UP; see docs/ROADMAP.md.
+//! kernel module and an interface that is UP; see NOTES.md.
 
 use runtt_smp::{can::IsoTpTransport, SmpClient, ToolkitClient};
 use runtt_transport::can::IsoTpChannel;

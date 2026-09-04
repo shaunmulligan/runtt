@@ -42,19 +42,21 @@ capture; same-digest no-op redeploy.
 **Not built yet:**
 
 - **A hardware CI gate.** CI is simulated-only, deliberately — the design and the
-  traps that make a naive gate worthless are in `docs/HARDWARE_GATE.md`.
+  traps that make a naive gate worthless are in `NOTES.md`.
 - **CAN on physical hardware.** The transport is proven end to end on a virtual
   bus (`vcan`) and gates in CI; two boards with different CAN controllers are on
   order to prove it is controller-agnostic. See [runtt-boards](https://github.com/shaunmulligan/runtt-boards).
 - **A fleet trust root.** Everything is signed with MCUboot's *published*
   development key. Fine on a bench, unfit for anything else — see the
   signing-key warning in [runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module).
-- **Revert on real hardware.** Exercised in MCUboot's own simulator, not yet on a
-  board.
-
-> **On CI:** `.github/workflows/ci.yml` is a well-formed file, not a running
-> system. This repo has no git remote, so it has never executed anywhere. The
-> suites it runs do pass locally.
+- **A hardware CI gate.** Every job is simulated; nothing runs against a board
+  automatically. Designed in [NOTES.md](NOTES.md),
+  deliberately not built.
+- **Recovery from firmware that faults before the runtt module starts.** The
+  confirm deadline covers firmware that boots but cannot be reached; an image
+  that hard faults first does not reboot at all, because Zephyr's default fatal
+  handler halts. That needs a hardware watchdog — §6 of
+  [NOTES.md](NOTES.md).
 
 ## Install
 
@@ -189,12 +191,8 @@ Contract loss is never remotely permanent, by construction.
 | `docs/ARCHITECTURE.md` | how it fits together, and why an OCI runtime rather than a service |
 | `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics, identity |
 | `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
-| `docs/ROADMAP.md` | where this is and what is worth doing next |
-| `docs/HARDWARE_GATE.md` | why CI is simulated-only, and the design for a hardware gate |
-| `docs/MANUAL_VERIFICATION.md` | walk the native_sim flow by hand, step by step |
-| `docs/MANUAL_LOG_DEMUX.md` | verify the single-channel log demux by hand |
-| `docs/MICROROS.md` | research: what a micro-ROS robotics use case would need |
 | `docs/FORKED_DEPENDENCY.md` | why we build against a fork of `mcumgr-toolkit`, and how to drop it |
+| [`NOTES.md`](NOTES.md) | **for maintainers, not users:** roadmap, by-hand procedures, research, and how the current state was reached |
 
 ## The runtt repositories
 

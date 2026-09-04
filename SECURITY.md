@@ -30,7 +30,7 @@ signed with MCUboot's *published* development key
 **no trust root is enrolled** and image signing provides no authenticity guarantee
 as shipped. This is appropriate for a bench and unfit for a fleet. Generating and
 enrolling a real key is a prerequisite for any deployment, and on some boards
-rotating it requires physical access — see `docs/PROVISIONING.md`.
+rotating it requires physical access — see [`PROVISIONING.md`](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/PROVISIONING.md).
 
 **The identity record is not signed.** The per-board record in flash (CAN node id,
 serial) sits outside MCUboot's signed slots by design, so an update cannot cost a
