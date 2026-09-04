@@ -76,7 +76,7 @@ already carries ESP32 quirks. So the S3 has a real USB device controller on the
 same `device_next` stack we use, and the dual-CDC contract ports directly.
 
 Board `esp32s3_devkitc`. The node ships `status = "disabled"`, so enabling it is
-the board section's job — the same shape as the three boards already supported.
+the board section's job — the same shape as the four boards already supported.
 
 #### ESP32-C3 — the single-channel proof
 
@@ -401,7 +401,7 @@ A two-device micro-ROS demo is therefore not a small step.
 #### What to build instead
 
 Use the **log channel as the data path**. It exists, it already streams to
-container stdio, and it works on all three boards today.
+container stdio, and it works on all four boards today.
 
 ```
 Pico   ──USB──┐
@@ -1577,7 +1577,7 @@ See [`WALKTHROUGH.md`](https://github.com/shaunmulligan/runtt-examples/blob/main
 
 ### 4. On hardware
 
-All three boards we ship are **two-channel**, so they take the plain path and the
+All four boards we ship are **two-channel**, so they take the plain path and the
 demux is not involved. To exercise it on real hardware, address the management
 channel directly with a `tty:` target, which makes the host treat it as
 single-channel:
