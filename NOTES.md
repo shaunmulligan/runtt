@@ -23,7 +23,7 @@ and the confirm deadline.
 
 ### Where we are
 
-Three boards, three SoC families, one runtime and one contract. On each of a
+Four boards, three SoC families, one runtime and one contract. On each of a
 Raspberry Pi Pico (RP2040, Cortex-M0+), a Raspberry Pi Pico 2 W (RP2350,
 Cortex-M33) and an Adafruit Feather nRF52840 (Cortex-M4),
 `docker run --runtime=runtt` uploads firmware over USB, MCUboot swaps and
@@ -190,11 +190,15 @@ Two things cost real time here and are worth carrying forward:
   the log path discarded nearly everything. A queue plus a sender thread moves the
   lossy boundary to somewhere that means what it says.
 
-**Hardware:** two CAN boards are on order -- a Waveshare ESP32-S3 (TWAI, paired
-with an SN65HVD230 we already have) and an Adafruit RP2040 CAN Feather (MCP25625,
-controller and transceiver onboard). Deliberately two *different* controllers, so
-the ISO-TP layer is proven controller-agnostic rather than merely intended to be.
-See [HARDWARE_TARGETS.md](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/HARDWARE_TARGETS.md) for what each needs before it boots.
+**Hardware: half done, 2026-09-04.** The Adafruit RP2040 CAN Bus Feather
+(MCP25625) arrived and is a supported board: deploy, logs and revert all proven
+over the physical bus at 500 kbit/s, host side a BTT U2C (gs_usb), including a
+deploy addressed by the board's identity record (`can:can0/0x45`) and a revert
+recovered over the bus in 78 s. The Waveshare ESP32-S3 (TWAI, paired with an
+SN65HVD230 already on hand) is still on order -- and still matters, because two
+*different* controllers is what makes the ISO-TP layer proven controller-agnostic
+rather than merely intended to be. Bring-up notes live in
+[runtt-boards' NOTES.md](https://github.com/shaunmulligan/runtt-boards/blob/main/NOTES.md).
 
 **Sequencing:** the transport crate is where this lands, so the repo split
 clarifies its boundary -- but it did not need to wait, and a `vcan` gate in CI is
@@ -233,7 +237,7 @@ re-applied against a known upstream revision. A fork would be an entire vendor
 tree to keep rebased for the sake of a few lines. `west patch` is the better
 mechanism here and should stay even after the patch is filed. Still pending before
 filing: a regression test in MCUboot's own simulator, noted in
-[MCUBOOT_SWAP_BUG.md](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/MCUBOOT_SWAP_BUG.md).
+[MCUBOOT_SWAP_BUG.md](https://github.com/shaunmulligan/runtt-boards/blob/main/NOTES.md).
 
 #### Phase B — the split — DONE
 
@@ -615,11 +619,14 @@ hardware watchdog (§6, Layer 2), verified on both SoC families.
    *provisioned* state, not the factory state, so "exercise the restore" is
    really "add `runtt-board restore`, and decide whether a factory image is
    worth keeping at all".
-3. **ESP32-S3** — cheap, proves the contract is not Pico-shaped, and the board
-   is on order along with the two CAN boards.
-5. **CAN on physical hardware** — two different controllers, which is what makes
-   the ISO-TP layer proven rather than merely intended.
-6. **Robotics demo** — most visible, and benefits from the split being done.
+3. **ESP32-S3** — proves the contract is not Pico-shaped AND closes the second
+   half of the CAN controller-agnostic claim (on-die TWAI against the CAN
+   Feather's MCP25625, which is done). The board is still on order.
+4. **Robotics demo** — most visible, and benefits from the split being done.
+
+Struck 2026-09-04: **CAN on physical hardware** — deploy, logs, revert and an
+identity-addressed placement all proven on the CAN Feather's MCP25625 through a
+real bus. One controller family of the two, hence ESP32-S3 above.
 
 Note what moved off the list entirely: "get a remote and make CI green" was the
 single highest-leverage act for months, on the grounds that nothing here had
@@ -853,7 +860,7 @@ inside a bootrom flash routine run with XIP disabled and return garbage, which
 produced one confidently wrong conclusion about corrupted flash.
 
 The genuine upstream finding that survived is unrelated to the deploy path: see
-[`MCUBOOT_SWAP_BUG.md`](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/MCUBOOT_SWAP_BUG.md).
+[`MCUBOOT_SWAP_BUG.md`](https://github.com/shaunmulligan/runtt-boards/blob/main/NOTES.md).
 
 ### Staging
 

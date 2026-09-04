@@ -24,39 +24,40 @@ container.
 
 ## Status
 
-**The full loop works on real hardware**, on three boards, through three engines.
+**The full loop works on real hardware**, on four boards, through three engines,
+over two transports.
 
 | | |
 |---|---|
-| **Boards** | Raspberry Pi Pico (RP2040), Raspberry Pi Pico 2 W (RP2350) and Adafruit Feather nRF52840, all end to end with MCUboot: upload, mark test, reset, verify, confirm — and revert, proven on the Pico 2 W |
+| **Boards** | Raspberry Pi Pico (RP2040), Raspberry Pi Pico 2 W (RP2350), Adafruit Feather nRF52840, and Adafruit RP2040 CAN Bus Feather — all end to end with MCUboot: upload, mark test, reset, verify, confirm, and revert |
 | **Engines** | Docker 28, podman, and the plain runc-style CLI. Also compatible with balena-engine, which is stock moby architecture |
-| **Transports** | USB CDC-ACM, bare serial, and CAN (SMP over ISO-TP) |
+| **Transports** | USB CDC-ACM, bare serial, and CAN (SMP over ISO-TP) — CAN proven on a physical bus (MCP25625 at 500 kbit/s), including a deploy addressed by the board's identity record and a revert recovered over the bus in 78 s with no human involved |
 | **Simulated** | Zephyr `native_sim` and a fault-injecting SMP mock with seven failure modes |
 
 Also working: firmware as a self-contained container project (`docker build .`
 from an application directory against a reusable builder image); per-board
-identity in flash so one image serves a fleet; provisioning over UF2 with no
-debug probe; exclusive occupancy; restart-policy propagation; `docker logs`
-capture; same-digest no-op redeploy.
+identity in flash so one image serves a fleet — provisioned end to end on the
+CAN Feather, whose serial and CAN node id both come from the record;
+provisioning over UF2 with no debug probe; exclusive occupancy; restart-policy
+propagation; `docker logs` capture over either transport; same-digest no-op
+redeploy; a confirm deadline and hardware watchdog on the device, so an image
+that cannot be reached or that halts reverts by itself.
 
 **Not built yet:**
 
-- **A hardware CI gate.** CI is simulated-only, deliberately — the design and the
-  traps that make a naive gate worthless are in `NOTES.md`.
-- **CAN on physical hardware.** The transport is proven end to end on a virtual
-  bus (`vcan`) and gates in CI; two boards with different CAN controllers are on
-  order to prove it is controller-agnostic. See [runtt-boards](https://github.com/shaunmulligan/runtt-boards).
+- **A hardware CI gate.** Every job is simulated, deliberately; nothing runs
+  against a board automatically. The design and the traps that make a naive
+  gate worthless are in [NOTES.md](NOTES.md).
 - **A fleet trust root.** Everything is signed with MCUboot's *published*
   development key. Fine on a bench, unfit for anything else — see the
   signing-key warning in [runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module).
-- **A hardware CI gate.** Every job is simulated; nothing runs against a board
-  automatically. Designed in [NOTES.md](NOTES.md),
-  deliberately not built.
-- **Recovery from firmware that faults before the runtt module starts.** The
-  confirm deadline covers firmware that boots but cannot be reached; an image
-  that hard faults first does not reboot at all, because Zephyr's default fatal
-  handler halts. That needs a hardware watchdog — §6 of
+- **Recovery for firmware that does not carry the runtt module**, or that
+  faults before the module initialises. The confirm deadline and watchdog cover
+  everything after the module is up; covering arbitrary firmware would mean
+  MCUboot arming a watchdog that bootloops anything not feeding it — §6 of
   [NOTES.md](NOTES.md).
+- **A second CAN controller family.** ISO-TP is proven on the MCP25625; the
+  ESP32-S3's on-die TWAI is the other half of the controller-agnostic claim.
 
 ## Install
 
