@@ -559,28 +559,38 @@ section set and the second half of which is the part that is easy not to write:
 
 Against 14 minutes and an operator with a debug probe, before it existed.
 
-#### Layer 2 — a hardware watchdog (open)
+#### Layer 2 — a hardware watchdog (done, 2026-09-04)
 
-Layer 1 cannot help firmware that faults before the module initialises, or
-firmware that does not include the module at all. A WDT armed early and fed only
-while the contract is up covers both, and it is what makes this property hold
-for *arbitrary* firmware rather than only ours. RP2350 has `wdt0`
-(`raspberrypi,pico-watchdog`, driver `wdt_rpi_pico.c`) and the nRF52840 has one
-too.
+`CONFIG_RUNTT_WATCHDOG` in runtt-zephyr-module: arms the SoC watchdog at init,
+feeds it from the system workqueue, and — because the feed consults
+`runtt_health_ok()` — an application that opts into `runtt_health_feed()` gets
+"application alive" rather than "kernel alive". Tested on hardware in both
+directions on both SoC families: a `k_panic()`ed image reboots and reverts
+(RESETREAS/REASON read TIMER, from registers cleared immediately beforehand),
+and the same image without the watchdog halts permanently.
 
-The crash case is worth restating, because it is easy to assume otherwise:
-Zephyr's default fatal handler **halts** (`arch_system_halt`, `kernel/fatal.c`),
-it does not reboot. An image that hard faults therefore does not revert either,
-and Layer 1 does not change that.
+What building it surfaced, and the design that came out:
 
-Note what does **not** do this: MCUboot's `CONFIG_BOOT_WATCHDOG_FEED` is
-literally "Feed the watchdog while doing swap" — verified in
-`bootloader/mcuboot/boot/zephyr/Kconfig`. It feeds an already-running watchdog
-during long operations and does not arm one for the application, so this is
-separate per-SoC work.
+* **The watchdog survives a soft reset on both RP2350 and nRF52840**, so an
+  app-armed watchdog imposes its remaining period on MCUboot's swap and the next
+  image's startup. On nRF52840 MCUboot's `BOOT_WATCHDOG_FEED` handles it, on by
+  upstream default — verified, an 8 s watchdog through an 82 KB swap. On RP2 that
+  path is inert (Zephyr's driver refuses to feed a watchdog its instance did not
+  arm), so the module stops the watchdog on MCUmgr's os-reset hook instead
+  (`RUNTT_WATCHDOG_DISARM_ON_RESET`). Verified on a Pico 2 W: a watchdog-free
+  image deployed over a watchdog-armed one boots with `ENABLE=0` and the
+  inherited countdown frozen — where without the hook the same sequence was
+  reset 5.5 s after boot.
+* The prediction below that MCUboot's `BOOT_WATCHDOG_FEED` "does not arm one for
+  the application, so this is separate per-SoC work" was half right: upstream
+  also ships `BOOT_WATCHDOG_SETUP_AT_BOOT`, which does arm one. Deliberately not
+  used — it would bootloop every application that does not feed it.
 
-Zephyr does ship a building block: `subsys/task_wdt`, a task-level software
-watchdog that `select`s `REBOOT`.
+Still uncovered, deliberately: firmware that does not carry the module, and a
+fault before the module initialises. Covering those means MCUboot arming a
+watchdog for arbitrary firmware, which is the bootloop above. The full findings,
+including two wrong turns and how they were caught, are in
+[runtt-zephyr-module's NOTES.md](https://github.com/shaunmulligan/runtt-zephyr-module/blob/main/NOTES.md).
 
 #### Layer 3 — host-side tidy-up (open)
 
@@ -593,18 +603,19 @@ already recoverable, so it is the lowest-value of the three.
 
 Revised 2026-09-03. Struck because they are done: CAN over `vcan` and the CAN
 transport in `runtt-transport`; the fork swap and deleting `third_party/`; the
-four-repo split; CI per repo; and the confirm deadline (§6, Layer 1).
+four-repo split; CI per repo; the confirm deadline (§6, Layer 1); and the
+hardware watchdog (§6, Layer 2), verified on both SoC families.
 
 1. **File the MCUboot patch** — the regression test injecting a corrupt trailer
    comes first, then the issue, then its URL into `patches.yml` as `issue:`.
    `mcumgr-toolkit` is with review; dropping that fork is the prerequisite for
    any crates.io release.
-2. **Layer 2, the hardware watchdog** (§6) — what makes the safety property
-   hold for firmware that is not ours, rather than only for firmware carrying
-   the module.
-3. **Exercise the Feather restore** (§5). The backup is verified by checksum and
-   the restore has never been run, which means it is not yet a backup.
-4. **ESP32-S3** — cheap, proves the contract is not Pico-shaped, and the board
+2. **The Feather restore, reframed** (§5). There is no restore command — only a
+   procedure at the end of `backup-nrf52840.sh` — and the backup captures the
+   *provisioned* state, not the factory state, so "exercise the restore" is
+   really "add `runtt-board restore`, and decide whether a factory image is
+   worth keeping at all".
+3. **ESP32-S3** — cheap, proves the contract is not Pico-shaped, and the board
    is on order along with the two CAN boards.
 5. **CAN on physical hardware** — two different controllers, which is what makes
    the ISO-TP layer proven rather than merely intended.

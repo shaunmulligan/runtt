@@ -123,10 +123,13 @@ reboots a board that has not been confirmed within its deadline, 60 s by
 default, and MCUboot reverts on that boot. The deadline wants to be comfortably
 longer than the host's confirm latency: too short reverts good firmware.
 
-Two cases are not covered, and a hardware watchdog is what would cover them:
-firmware that faults before that module initialises, since Zephyr's default
-fatal handler halts rather than reboots, and firmware that does not carry the
-module at all.
+An image that halts — Zephyr's default fatal handler halts rather than
+reboots — is covered by the same module's `CONFIG_RUNTT_WATCHDOG`: a hardware
+watchdog fed from the system workqueue, so a stopped kernel reboots the board
+and MCUboot reverts. Two cases remain uncovered, deliberately: firmware that
+does not carry the module, and a fault before the module initialises. Covering
+those would mean MCUboot arming a watchdog for arbitrary firmware, which would
+bootloop every application that does not know to feed it.
 
 ## Placement
 
