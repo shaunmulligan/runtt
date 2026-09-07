@@ -22,72 +22,130 @@ on the same rails as every other service, and the firmware container needs no
 privileges and no device mappings at all, because the runtime lives outside the
 container.
 
-## Status
+## Quick start
 
-**The full loop works on real hardware**, on four boards, through three engines,
-over two transports.
+**Assumes Ubuntu or Debian with Docker installed**, and one of the five boards
+below. Nothing here needs a Rust toolchain or a debug probe.
 
-| | |
-|---|---|
-| **Boards** | Raspberry Pi Pico (RP2040), Raspberry Pi Pico 2 W (RP2350), Adafruit Feather nRF52840, and Adafruit RP2040 CAN Bus Feather — all end to end with MCUboot: upload, mark test, reset, verify, confirm, and revert |
-| **Engines** | Docker 28, podman, and the plain runc-style CLI. Also compatible with balena-engine, which is stock moby architecture |
-| **Transports** | USB CDC-ACM, bare serial, and CAN (SMP over ISO-TP) — CAN proven on a physical bus (MCP25625 at 500 kbit/s), including a deploy addressed by the board's identity record and a revert recovered over the bus in 78 s with no human involved |
-| **Simulated** | Zephyr `native_sim` and a fault-injecting SMP mock with seven failure modes |
+### 1. Install the runtime
 
-Also working: firmware as a self-contained container project (`docker build .`
-from an application directory against a reusable builder image); per-board
-identity in flash so one image serves a fleet — provisioned end to end on the
-CAN Feather, whose serial and CAN node id both come from the record;
-provisioning over UF2 with no debug probe; exclusive occupancy; restart-policy
-propagation; `docker logs` capture over either transport; same-digest no-op
-redeploy; a confirm deadline and hardware watchdog on the device, so an image
-that cannot be reached or that halts reverts by itself.
-
-**Not built yet:**
-
-- **A hardware CI gate.** Every job is simulated, deliberately; nothing runs
-  against a board automatically. The design and the traps that make a naive
-  gate worthless are in [NOTES.md](NOTES.md).
-- **A fleet trust root.** Everything is signed with MCUboot's *published*
-  development key. Fine on a bench, unfit for anything else — see the
-  signing-key warning in [runtt-zephyr-module](https://github.com/shaunmulligan/runtt-zephyr-module).
-- **Recovery for firmware that does not carry the runtt module**, or that
-  faults before the module initialises. The confirm deadline and watchdog cover
-  everything after the module is up; covering arbitrary firmware would mean
-  MCUboot arming a watchdog that bootloops anything not feeding it — §6 of
-  [NOTES.md](NOTES.md).
-- **A second CAN controller family.** ISO-TP is proven on the MCP25625; the
-  ESP32-S3's on-die TWAI is the other half of the controller-agnostic claim.
-
-## Install
-
-Static Linux binaries, one per architecture, on the
-[releases page](https://github.com/shaunmulligan/runtt/releases):
+One static binary, plus the udev rules — which matter more than they look,
+because stock Ubuntu runs ModemManager and an AT-command probe landing
+mid-upload is a corrupted transfer:
 
 ```bash
-curl -LO https://github.com/shaunmulligan/runtt/releases/latest/download/runtt-aarch64
-chmod +x runtt-aarch64 && sudo mv runtt-aarch64 /usr/local/bin/runtt
+curl -LO https://github.com/shaunmulligan/runtt/releases/latest/download/runtt-x86_64
+chmod +x runtt-x86_64 && sudo install -m 0755 runtt-x86_64 /usr/local/bin/runtt
+
+sudo curl -fLo /etc/udev/rules.d/90-runtt.rules \
+  https://raw.githubusercontent.com/shaunmulligan/runtt/main/udev/90-runtt.rules
+sudo udevadm control --reload && sudo udevadm trigger
 ```
 
-`x86_64`, `aarch64` and `armv7hf`. Each is statically linked against musl, so
-there is no libc, libudev or glibc version to match on the device — which is the
-point, since the devices this runs on are rarely the machine it was built on.
+Then **merge** this into `/etc/docker/daemon.json` — creating the file if it is
+absent, not overwriting what is already in it — and
+`sudo systemctl restart docker`, after which `--runtime=runtt` resolves by name:
 
-Then, with **podman**, which takes the runtime as a path and needs no daemon
-configuration:
+```json
+{ "runtimes": { "runtt": { "path": "/usr/local/bin/runtt" } } }
+```
+
+### 2. Provision a board, once
+
+A board needs MCUboot and the device half of the contract in flash before the
+runtime can reach it: one downloaded script and one command, with no toolchain
+and no checkout.
+
+```bash
+curl -fLO https://raw.githubusercontent.com/shaunmulligan/runtt-boards/main/scripts/runtt-board
+chmod +x runtt-board
+./runtt-board provision rpi_pico --name mcu-01
+```
+
+`--name` is written into the board's flash and becomes its USB serial, so
+`usb:mcu-01` addresses that board on any machine from then on.
+
+| Board | SoC | Provisioning | Transports |
+|---|---|---|---|
+| [Raspberry Pi Pico](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-rpi_pico.md) | RP2040, Cortex-M0+ | drag-and-drop UF2, no probe | USB |
+| [Raspberry Pi Pico 2 W](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-rpi_pico2.md) | RP2350, Cortex-M33 | drag-and-drop UF2, no probe | USB |
+| [Waveshare ESP32-S3 DevKitC](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-esp32s3_devkitc.md) | ESP32-S3, Xtensa LX7 | `esptool` over USB, no probe | USB |
+| [Adafruit RP2040 CAN Bus Feather](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-adafruit_feather_canbus_rp2040.md) | RP2040 + MCP25625 | drag-and-drop UF2, no probe | USB **and** CAN |
+| [Adafruit Feather nRF52840](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-adafruit_feather_nrf52840.md) | nRF52840, Cortex-M4 | **SWD probe, and it erases the stock bootloader** | USB |
+
+Three silicon vendors, four SoC families, two instruction-set architectures —
+all passing the same contract, which is what makes it a contract rather than
+something shaped around one board. Each is proven on hardware end to end:
+upload, mark test, reset, verify, confirm, and revert.
+
+⚠️ Provisioning images are signed with MCUboot's **published development key**,
+so no trust root is enrolled and an image signature proves nothing. Fine on a
+bench, unfit for a fleet — generate your own key before shipping anything.
+
+### 3. Build firmware as a container image
+
+The build environment is one image, built once per machine; an application
+directory then needs only a six-line Dockerfile:
+
+```bash
+git clone https://github.com/shaunmulligan/runtt-boards
+docker build -f runtt-boards/builder/Dockerfile -t runtt-builder:v4.4.2 runtt-boards
+
+git clone https://github.com/shaunmulligan/runtt-examples
+cd runtt-examples/app1
+docker build --build-arg BOARD=rpi_pico/rp2040/mcuboot -t my-firmware:v1 .
+```
+
+The builder's base is `zephyrprojectrtos/ci` at **23 GB**, almost all of it
+toolchains — a once-per-machine download, but worth knowing about before
+starting on a small disk.
+
+`BOARD` is the only board-specific thing in the build — one of
+`rpi_pico/rp2040/mcuboot`, `rpi_pico2/rp2350a/m33/w/mcuboot`,
+`esp32s3_devkitc/esp32s3/procpu`,
+`adafruit_feather_canbus_rp2040/rp2040/mcuboot` or
+`adafruit_feather_nrf52840/nrf52840`. The result is `FROM scratch`: a signed
+MCUboot image and an entrypoint naming it, which is all the runtime reads.
+
+### 4. Deploy
+
+```bash
+docker run --rm --network none --runtime=runtt \
+  --annotation dev.runtt.target=usb:mcu-01 my-firmware:v1
+```
+
+The image uploads over SMP, MCUboot swaps it in, and it is confirmed only once
+the new firmware enumerates, speaks SMP and heartbeats — so an image that broke
+the contract reverts on its own.
+
+That command then **does not return**: the runtime stays resident as the
+container process, with the board's logs as its stdout. `docker logs -f` works,
+`docker stop` releases the board, redeploying the same digest is a no-op, and
+losing the device exits non-zero so the restart policy applies. A firmware
+service needs no network namespace, hence `--network none`.
+
+Next: [runtt-examples](https://github.com/shaunmulligan/runtt-examples) walks
+the whole loop — two applications, deployed, switched and switched back — with
+every command and transcript run against real hardware.
+
+## Install details
+
+Release binaries are built for `x86_64`, `aarch64` and `armv7hf`, each
+statically linked against musl, which is the point: the devices this runs on are
+rarely the machine it was built on. Every release also carries `SHA256SUMS`.
+
+**podman** needs no daemon configuration at all — it takes the runtime as a
+path, and needs no root:
 
 ```bash
 podman run --rm --network none --runtime=/usr/local/bin/runtt \
-  --annotation dev.runtt.target=usb:my-board-01 my-firmware:v1
+  --annotation dev.runtt.target=usb:mcu-01 my-firmware:v1
 ```
 
-Docker needs the runtime registered with the daemon first
-(`sudo scripts/register-docker.sh`), after which `--runtime=runtt` resolves by
-name. Don't build with one engine and run with the other — they keep separate
-image stores.
-
-Boards need provisioning once before any of this: see
-[runtt-boards](https://github.com/shaunmulligan/runtt-boards).
+Pick one engine and stay on it within a session: docker and podman keep separate
+image stores, so building with one and running with the other fails to find the
+image it just built. balena-engine is stock moby architecture and takes the same
+`daemon.json` registration as Docker.
 
 ## Trying it, with no hardware — from source
 
