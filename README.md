@@ -29,37 +29,32 @@ below. Nothing here needs a Rust toolchain or a debug probe.
 
 ### 1. Install the runtime
 
-One static binary — no libc, libudev or glibc version to match:
+One static binary, plus the udev rules — which matter more than they look,
+because stock Ubuntu runs ModemManager and an AT-command probe landing
+mid-upload is a corrupted transfer:
 
 ```bash
 curl -LO https://github.com/shaunmulligan/runtt/releases/latest/download/runtt-x86_64
 chmod +x runtt-x86_64 && sudo install -m 0755 runtt-x86_64 /usr/local/bin/runtt
-```
 
-Register it with the daemon so `--runtime=runtt` resolves by name. **Merge** this
-into `/etc/docker/daemon.json`, creating the file if it does not exist, rather
-than overwriting settings already there — then `sudo systemctl restart docker`:
-
-```json
-{ "runtimes": { "runtt": { "path": "/usr/local/bin/runtt" } } }
-```
-
-Then the udev rules, which matter more than they look: stock Ubuntu runs
-ModemManager, and an AT-command probe landing mid-upload is a corrupted
-transfer. The rules set `ID_MM_DEVICE_IGNORE` on runtt boards.
-
-```bash
 sudo curl -fLo /etc/udev/rules.d/90-runtt.rules \
   https://raw.githubusercontent.com/shaunmulligan/runtt/main/udev/90-runtt.rules
 sudo udevadm control --reload && sudo udevadm trigger
 ```
 
+Then **merge** this into `/etc/docker/daemon.json` — creating the file if it is
+absent, not overwriting what is already in it — and
+`sudo systemctl restart docker`, after which `--runtime=runtt` resolves by name:
+
+```json
+{ "runtimes": { "runtt": { "path": "/usr/local/bin/runtt" } } }
+```
+
 ### 2. Provision a board, once
 
 A board needs MCUboot and the device half of the contract in flash before the
-runtime can reach it. That is one downloaded script and one command — no
-toolchain and no checkout, because the person provisioning a board wants to
-flash it, not to install Zephyr:
+runtime can reach it: one downloaded script and one command, with no toolchain
+and no checkout.
 
 ```bash
 curl -fLO https://raw.githubusercontent.com/shaunmulligan/runtt-boards/main/scripts/runtt-board
@@ -78,10 +73,10 @@ chmod +x runtt-board
 | [Adafruit RP2040 CAN Bus Feather](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-adafruit_feather_canbus_rp2040.md) | RP2040 + MCP25625 | drag-and-drop UF2, no probe | USB **and** CAN |
 | [Adafruit Feather nRF52840](https://github.com/shaunmulligan/runtt-boards/blob/main/docs/start-adafruit_feather_nrf52840.md) | nRF52840, Cortex-M4 | **SWD probe, and it erases the stock bootloader** | USB |
 
-Three silicon vendors, four SoC families and two instruction-set architectures
-(Arm and Xtensa), all passing the same contract — which is what makes it a
-contract rather than something shaped around one board. Every board is proven
-end to end on hardware: upload, mark test, reset, verify, confirm, and revert.
+Three silicon vendors, four SoC families, two instruction-set architectures —
+all passing the same contract, which is what makes it a contract rather than
+something shaped around one board. Each is proven on hardware end to end:
+upload, mark test, reset, verify, confirm, and revert.
 
 ⚠️ Provisioning images are signed with MCUboot's **published development key**,
 so no trust root is enrolled and an image signature proves nothing. Fine on a
@@ -89,8 +84,8 @@ bench, unfit for a fleet — generate your own key before shipping anything.
 
 ### 3. Build firmware as a container image
 
-The build environment is one image, built once per machine, and an application
-directory then carries a six-line Dockerfile:
+The build environment is one image, built once per machine; an application
+directory then needs only a six-line Dockerfile:
 
 ```bash
 git clone https://github.com/shaunmulligan/runtt-boards
@@ -101,9 +96,9 @@ cd runtt-examples/app1
 docker build --build-arg BOARD=rpi_pico/rp2040/mcuboot -t my-firmware:v1 .
 ```
 
-The builder's base is `zephyrprojectrtos/ci`, which is **23 GB** — almost all of
-it toolchains. It is a once-per-machine download, and the expensive layers cache,
-but be aware of it before starting on a small disk.
+The builder's base is `zephyrprojectrtos/ci` at **23 GB**, almost all of it
+toolchains — a once-per-machine download, but worth knowing about before
+starting on a small disk.
 
 `BOARD` is the only board-specific thing in the build — one of
 `rpi_pico/rp2040/mcuboot`, `rpi_pico2/rp2350a/m33/w/mcuboot`,
@@ -124,10 +119,10 @@ the new firmware enumerates, speaks SMP and heartbeats — so an image that brok
 the contract reverts on its own.
 
 That command then **does not return**: the runtime stays resident as the
-container process, and the board's logs are its stdout. `docker logs -f` works,
-`docker stop` releases the board, a redeploy of the same digest is a no-op, and
-losing the device is a non-zero exit so the engine's restart policy applies. A
-firmware service needs no network namespace, hence `--network none`.
+container process, with the board's logs as its stdout. `docker logs -f` works,
+`docker stop` releases the board, redeploying the same digest is a no-op, and
+losing the device exits non-zero so the restart policy applies. A firmware
+service needs no network namespace, hence `--network none`.
 
 Next: [runtt-examples](https://github.com/shaunmulligan/runtt-examples) walks
 the whole loop — two applications, deployed, switched and switched back — with
