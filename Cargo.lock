@@ -401,15 +401,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "either"
-version = "1.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -655,14 +646,13 @@ dependencies = [
 
 [[package]]
 name = "mcumgr-toolkit"
-version = "0.16.0"
-source = "git+https://github.com/shaunmulligan/mcumgr-toolkit?rev=6595f7e4fcadec5c1d02dd70072dc16e3176e253#6595f7e4fcadec5c1d02dd70072dc16e3176e253"
+version = "0.17.1"
+source = "git+https://github.com/Finomnis/mcumgr-toolkit?rev=40713d88731362b903f085f7a8be64bd23ce4205#40713d88731362b903f085f7a8be64bd23ce4205"
 dependencies = [
  "base64",
  "chrono",
  "ciborium",
  "crc",
- "either",
  "hex",
  "log",
  "miette",

@@ -33,23 +33,22 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 # Pinned exactly: young crate, single maintainer. See docs/WIRE_CONTRACT.md.
-mcumgr-toolkit = "=0.16.0"
+mcumgr-toolkit = "=0.17.1"
 
 [patch.crates-io]
-# One addition upstream does not have yet: MCUmgrClient::new_from_transport, plus
-# the two public constants a Transport impl needs to name its own parameter types.
-# Without them a Transport living outside the crate -- ours is SMP over ISO-TP on
-# CAN -- cannot be handed to a client at all.
+# MCUmgrClient::new_from_transport, plus the public constants a Transport impl
+# needs to name its own parameter types. Without them a Transport living outside
+# the crate -- ours is SMP over ISO-TP on CAN -- cannot be handed to a client.
 #
-# Submitted upstream as Finomnis/mcumgr-toolkit#186.
-# Pinned to a REV rather than a branch: the branch will move as review feedback
-# lands, and we want to choose when to take it rather than have a rebase upstream
-# silently change what we build.
+# Merged upstream as Finomnis/mcumgr-toolkit#186 (40713d8), after the 0.17.1
+# release. Until a release contains it, build against that upstream commit.
+# Pinned to a REV rather than a branch: main moves, and we choose when to take
+# it rather than have a push upstream silently change what we build.
 #
 # NOTE: while this git dependency exists, `cargo publish` is impossible -- crates.io
 # requires every dependency to itself be on crates.io. Dropping back to a released
 # version is the last step before publishing. See docs/FORKED_DEPENDENCY.md.
-mcumgr-toolkit = { git = "https://github.com/shaunmulligan/mcumgr-toolkit", rev = "6595f7e4fcadec5c1d02dd70072dc16e3176e253" }
+mcumgr-toolkit = { git = "https://github.com/Finomnis/mcumgr-toolkit", rev = "40713d88731362b903f085f7a8be64bd23ce4205" }
 
 [profile.release]
 # Strip in the compiler rather than with binutils afterwards. Release artefacts

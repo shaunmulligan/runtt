@@ -250,7 +250,7 @@ Contract loss is never remotely permanent, by construction.
 | `docs/ARCHITECTURE.md` | how it fits together, and why an OCI runtime rather than a service |
 | `docs/WIRE_CONTRACT.md` | the firmware-side interface: channels, framing, image semantics, identity |
 | `docs/OCI_COMPLIANCE.md` | what we implement, what we don't, and what engines actually pass |
-| `docs/FORKED_DEPENDENCY.md` | why we build against a fork of `mcumgr-toolkit`, and how to drop it |
+| `docs/FORKED_DEPENDENCY.md` | why we build against an unreleased `mcumgr-toolkit` commit, and how to drop it |
 | [`NOTES.md`](NOTES.md) | **for maintainers, not users:** roadmap, by-hand procedures, research, and how the current state was reached |
 
 ## The runtt repositories
