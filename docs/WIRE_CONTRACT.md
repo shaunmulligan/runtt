@@ -8,7 +8,8 @@ builds. They version independently, and nothing forces them to agree — so this
 document, not the code, is the interface.
 
 Everything here is implemented and verified against Zephyr v4.4.2 and
-`mcumgr-toolkit` 0.16.0 unless explicitly marked otherwise.
+`mcumgr-toolkit` 0.17.1 (plus the merged #186 commit, see
+`FORKED_DEPENDENCY.md`) unless explicitly marked otherwise.
 
 ---
 

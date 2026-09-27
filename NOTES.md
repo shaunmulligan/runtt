@@ -41,7 +41,7 @@ Revert is proven on hardware, and the reboot that it needs is now scheduled by
 the device itself (§6).
 
 **Not yet done:** the upstream MCUboot report is drafted but unfiled, the
-`mcumgr-toolkit` fork is still in place so crates.io is closed, and no trust
+`mcumgr-toolkit` patch is merged but unreleased so crates.io is closed, and no trust
 root is enrolled (§5).
 
 ---
@@ -221,14 +221,15 @@ monolithic pipeline and then splitting it means writing it twice.
 Both are carried locally today. They get **different treatment**, and conflating
 them would be a mistake.
 
-**`mcumgr-toolkit` → done.** Submitted as
-[Finomnis/mcumgr-toolkit#186](https://github.com/Finomnis/mcumgr-toolkit/pull/186),
-and this repo now builds against the fork rather than a vendored tree — 436 KB and
-32 files lighter. See [FORKED_DEPENDENCY.md](FORKED_DEPENDENCY.md) for the state
-of it and the steps to drop the fork when a release contains the patch.
+**`mcumgr-toolkit` → merged.**
+[Finomnis/mcumgr-toolkit#186](https://github.com/Finomnis/mcumgr-toolkit/pull/186)
+landed as `40713d8` on 2026-09-27, after the 0.17.1 release, so this repo builds
+against that upstream commit — the fork is gone. See
+[FORKED_DEPENDENCY.md](FORKED_DEPENDENCY.md) for the steps to drop the git
+dependency when a release contains it.
 
-⚠️ **A git dependency cannot be published to crates.io**, so while the fork is in
-place `cargo publish` is closed. Not urgent, but it means dropping the fork is a
+⚠️ **A git dependency cannot be published to crates.io**, so until then
+`cargo publish` is closed. Not urgent, but it means the version bump is a
 prerequisite for any crates.io release rather than an optional tidy-up.
 
 **MCUboot → submit the patch, do NOT fork.** It rides `west patch` in
@@ -612,8 +613,8 @@ hardware watchdog (§6, Layer 2), verified on both SoC families.
 
 1. **File the MCUboot patch** — the regression test injecting a corrupt trailer
    comes first, then the issue, then its URL into `patches.yml` as `issue:`.
-   `mcumgr-toolkit` is with review; dropping that fork is the prerequisite for
-   any crates.io release.
+   `mcumgr-toolkit` #186 is merged and awaiting a release; taking that release
+   is the prerequisite for any crates.io release.
 2. **The Feather restore, reframed** (§5). There is no restore command — only a
    procedure at the end of `backup-nrf52840.sh` — and the backup captures the
    *provisioned* state, not the factory state, so "exercise the restore" is
